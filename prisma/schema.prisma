@@ -1,0 +1,117 @@
+// RushDesk — Prisma schema
+// Database provider: Supabase (PostgreSQL)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Business {
+  id            String   @id @default(cuid())
+  name          String
+  googlePlaceId String?  @unique
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  menuItems     MenuItem[]
+  orders        Order[]
+  reservations  Reservation[]
+}
+
+model MenuItem {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  name       String
+  category   String?
+  price      Decimal  @db.Decimal(10, 2)
+  available  Boolean  @default(true)
+  imageUrl   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  orderItems OrderItem[]
+
+  @@index([businessId, category])
+  @@index([businessId, available])
+}
+
+model Order {
+  id            String      @id @default(cuid())
+  businessId    String
+  business      Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customerName  String?
+  customerPhone String?
+  type          OrderType   @default(DINE_IN)
+  status        OrderStatus @default(PENDING)
+  // Server-computed from sum(OrderItem.unitPrice * quantity).
+  // Never trust a client-submitted total.
+  totalAmount   Decimal     @db.Decimal(10, 2)
+  notes         String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  items         OrderItem[]
+
+  @@index([businessId, status])
+  @@index([businessId, createdAt])
+}
+
+model OrderItem {
+  id         String   @id @default(cuid())
+  orderId    String
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId String
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id])
+  quantity   Int      @default(1)
+  // Snapshot of MenuItem.price at order time — the menu price can
+  // change after the order is placed.
+  unitPrice  Decimal  @db.Decimal(10, 2)
+
+  @@index([orderId])
+}
+
+model Reservation {
+  id            String            @id @default(cuid())
+  businessId    String
+  business      Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customerName  String
+  customerPhone String?
+  customerEmail String?
+  partySize     Int
+  date          DateTime
+  status        ReservationStatus @default(PENDING)
+  notes         String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@index([businessId, date])
+  @@index([businessId, status])
+}
+
+enum OrderType {
+  DINE_IN
+  TAKEAWAY
+  DELIVERY
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PREPARING
+  READY
+  COMPLETED
+  CANCELLED
+}
+
+enum ReservationStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  NO_SHOW
+  COMPLETED
+}
