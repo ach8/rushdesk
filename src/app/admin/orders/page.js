@@ -1,7 +1,10 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { ADMIN_SESSION_COOKIE, verifyAdminSessionValue } from '@/lib/adminSession';
+import { prisma } from '@/lib/prisma';
+import { listRecentOrders } from '@/lib/orders';
 import { signOutAdmin } from '../login/actions';
+import OrdersDashboard from './OrdersDashboard';
 
 export const metadata = {
   title: 'Orders · RushDesk Admin',
@@ -16,20 +19,32 @@ export default async function OrdersPage() {
     redirect('/admin/login');
   }
 
+  // The current admin session is not yet business-scoped; pick the earliest
+  // business as the active tenant. When multi-tenant auth lands the session
+  // payload will carry `businessId` and this lookup goes away.
+  const business = await prisma.business.findFirst({
+    orderBy: { createdAt: 'asc' },
+    select: { id: true, name: true },
+  });
+
+  const initialOrders = business
+    ? await listRecentOrders({ businessId: business.id, limit: 50 })
+    : [];
+
   return (
     <main className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100">
       <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8 lg:py-14">
         <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-indigo-600">
-              RushDesk · Admin
+              RushDesk · Admin{business ? ` · ${business.name}` : ''}
             </p>
             <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
               Kitchen Dashboard
             </h1>
             <p className="mt-3 max-w-2xl text-base leading-relaxed text-slate-600">
-              Orders placed through the AI voice assistant appear here in real time.
-              Update statuses as orders move through preparation and delivery.
+              Orders placed through the AI voice assistant appear here in real time. Update statuses
+              as orders move through preparation and delivery.
             </p>
           </div>
           <form action={signOutAdmin}>
@@ -42,16 +57,7 @@ export default async function OrdersPage() {
           </form>
         </header>
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm ring-1 ring-slate-900/5">
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <div className="mb-4 text-5xl">🍽️</div>
-            <h2 className="text-lg font-semibold text-slate-700">No orders yet</h2>
-            <p className="mt-2 max-w-sm text-sm text-slate-500">
-              Orders will appear here once the AI voice assistant starts taking calls.
-              The dashboard updates in real time via Server-Sent Events.
-            </p>
-          </div>
-        </section>
+        <OrdersDashboard businessId={business?.id ?? null} initialOrders={initialOrders} />
       </div>
     </main>
   );

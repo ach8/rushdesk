@@ -9,6 +9,13 @@ const envSchema = z.object({
   // Shared secret for internal admin endpoints.
   // Required at least 32 chars so a weak token isn't deployed by accident.
   ADMIN_API_TOKEN: z.string().min(32),
+  // Distributed pub/sub transport for the kitchen dashboard SSE stream.
+  // Optional at the framework level: when unset we fall back to an
+  // in-process broker (fine for local dev and single-node deploys).
+  // REQUIRED in any horizontally-scaled deployment (e.g. Vercel) — a
+  // container can only fan out an event to its own local subscribers
+  // without it, so other kitchen screens would miss updates.
+  REDIS_URL: z.string().url().optional(),
 });
 
 let cached;

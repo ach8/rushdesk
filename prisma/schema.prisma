@@ -48,15 +48,20 @@ model Order {
   customerPhone String?
   type          OrderType   @default(DINE_IN)
   status        OrderStatus @default(PENDING)
+  source        OrderSource @default(VOICE)
   // Server-computed from sum(OrderItem.unitPrice * quantity).
   // Never trust a client-submitted total.
   totalAmount   Decimal     @db.Decimal(10, 2)
   notes         String?
+  // Idempotency key supplied by the caller (e.g. the voice-agent's call SID)
+  // to make order creation safe under retries. Scoped per-business.
+  idempotencyKey String?
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
   items         OrderItem[]
 
+  @@unique([businessId, idempotencyKey])
   @@index([businessId, status])
   @@index([businessId, createdAt])
 }
@@ -71,6 +76,10 @@ model OrderItem {
   // Snapshot of MenuItem.price at order time — the menu price can
   // change after the order is placed.
   unitPrice  Decimal  @db.Decimal(10, 2)
+  // Per-line special instructions captured by the voice agent, e.g.
+  // "no onions", "extra ranch", "gluten-free bun". Bounded length is
+  // enforced at the validation layer.
+  notes      String?
 
   @@index([orderId])
 }
@@ -97,6 +106,12 @@ enum OrderType {
   DINE_IN
   TAKEAWAY
   DELIVERY
+}
+
+enum OrderSource {
+  VOICE
+  WEB
+  STAFF
 }
 
 enum OrderStatus {
