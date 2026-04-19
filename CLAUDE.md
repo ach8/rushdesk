@@ -66,11 +66,6 @@ The platform is built as a modular companion to [LocalBoost](https://github.com/
 
 ### Voice Receptionist Flow (CRITICAL)
 
-- Twilio webhooks live under `src/app/api/voice/`. Every inbound webhook MUST validate `X-Twilio-Signature` before doing anything else — `verifyTwilioSignature` is the only thing between anonymous internet callers and fake orders in the kitchen.
-- The signed URL is reconstructed via `canonicalWebhookUrl(request, { publicBaseUrl })`. Do NOT rely on `request.url` alone — Vercel / proxies can rewrite the Host header.
-- `CallSid` MUST be passed as the `idempotencyKey` to `createOrder` so Twilio retries cannot create duplicate orders. `src/lib/voice/tools.js::normalizeSubmitOrderArgs` already does this — do not bypass it.
-- The AI must NEVER be able to set `customerPhone` from tool arguments. The phone comes from Twilio's `From` param and is captured into the session at call start.
-- Per-call session state (transcript, turn count, placed order id) lives in `src/lib/voice/session.js` — Redis when `REDIS_URL` is set, in-memory Map otherwise. The same REDIS_URL powers the kitchen SSE broker; the two don't share clients but do share the env var.
 - A successful `submit_order` tool call automatically flows through `createOrder` → `publishOrderEvent` → kitchen dashboard SSE. No extra wiring needed.
 
 ### Communication & Agentic Behavior
