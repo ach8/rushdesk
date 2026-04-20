@@ -50,48 +50,45 @@ npm run dev
 
 ## AI Voice Receptionist
 
-Callers dial the restaurant's Twilio number and converse with an OpenAI-powered agent that takes orders. Each successful order is pushed to the kitchen dashboard in real time via the existing SSE stream.
+Callers dial the restaurant's number and converse with an [ElevenLabs Conversational AI](https://elevenlabs.io/docs/conversational-ai/overview) agent. ElevenLabs owns the entire realtime conversation (STT, LLM turns, TTS, barge-in). When the caller confirms their order, the agent invokes a **server tool** that POSTs the structured order to RushDesk, which pushes it to the kitchen dashboard in real time via the existing SSE stream.
 
-### Webhooks
+### Agent setup (ElevenLabs dashboard)
 
-Configure these on your Twilio phone number:
-
-| Twilio Setting                               | URL                                        |
-| -------------------------------------------- | ------------------------------------------ |
-| **A call comes in** — Webhook, HTTP POST     | `https://<your-domain>/api/voice/incoming` |
-| **Call status changes** — Webhook, HTTP POST | `https://<your-domain>/api/voice/status`   |
-
-`/api/voice/turn` is referenced internally by the TwiML returned from `/incoming` — it does not need to be configured at Twilio.
+1. Create a Conversational AI agent and give it the restaurant menu in its system prompt / knowledge base, including the `menu_item_id` for each item.
+2. Add a **Webhook** server tool named `submit_order`:
+   - Method `POST`, URL `https://<your-domain>/api/voice/submit-order`
+   - Body parameters (JSON):
+     - `conversation_id` → dynamic variable `{{system__conversation_id}}`
+     - `caller_phone` → dynamic variable `{{system__caller_id}}` (telephony only)
+     - `items` (array of `{ menu_item_id, quantity, notes }`) — collected by the LLM
+     - `order_type` (`DINE_IN` | `TAKEAWAY` | `DELIVERY`)
+     - `customer_name`, `order_notes` (optional)
+3. Under **Webhooks**, copy the signing secret into `ELEVENLABS_WEBHOOK_SECRET`.
 
 ### Architecture
 
 ```
-  Caller ──► Twilio ──► /api/voice/incoming  (greeting + <Gather input="speech">)
-                          │
-                          ├──► /api/voice/turn   (SpeechResult → OpenAI → TwiML reply)
-                          │       │
-                          │       └──► submit_order tool → createOrder()
-                          │                                      │
-                          │                                      └──► publishOrderEvent
-                          │                                                │
-                          │                                                └──► SSE → kitchen dashboard
-                          │
-                          └──► /api/voice/status (cleanup on hangup)
+  Caller ──► ElevenLabs Agent (full-duplex voice, LLM turns, TTS)
+                    │
+                    └── submit_order server tool ──► POST /api/voice/submit-order
+                                                          │
+                                                          └──► createOrder()
+                                                                    │
+                                                                    └──► publishOrderEvent
+                                                                              │
+                                                                              └──► SSE → kitchen dashboard
 ```
 
-Every turn is a short-lived HTTP request — Vercel-native. Per-call transcript is persisted in Redis (keyed by `CallSid`) so any warm container can resume the conversation. Order creation re-uses the existing `createOrder` pipeline, which means:
+RushDesk no longer runs any per-turn conversation logic — the only inbound surface is a single, stateless tool webhook. The endpoint **acks immediately** (`202 { ok: true, status: "accepted" }`) so the agent can confirm to the caller without dead air, then runs `createOrder` in the background via `waitUntil`. Consequently the agent does not receive a server-computed total or short code to read back; it should simply thank the caller and wrap up. Order creation re-uses the existing `createOrder` pipeline, which means:
 
-- Totals are computed server-side from DB prices (the AI cannot negotiate).
-- `CallSid` is the idempotency key — Twilio retries can't create duplicate orders.
+- Totals are computed server-side from DB prices (the agent cannot negotiate).
+- `conversation_id` is the idempotency key — webhook retries can't create duplicate orders.
 - Menu items are re-validated against `{ businessId, available }` at submit time.
 - The moment the order is created, the existing `orderEvents` broker fires → kitchen dashboard SSE streams pick it up within milliseconds.
 
-### Latency / realtime note
-
-This implementation uses Twilio's speech recognition + neural TTS as the voice layer, with OpenAI Chat Completions per turn. End-to-end per-turn latency is typically 1–2s (speech detection + OpenAI + TTS playback). For sub-second conversational feel you'd bridge raw audio between Twilio Media Streams and the OpenAI Realtime API over a persistent WebSocket — that path requires a long-lived compute host outside Vercel's serverless functions. The tool contract (`submit_order`, etc.) is transport-agnostic, so upgrading later only touches `src/app/api/voice/*`.
-
 ### Security
 
-- Every inbound webhook's `X-Twilio-Signature` is validated (HMAC-SHA1, constant-time compare). Requests without a valid signature are rejected with 403.
-- The signed URL is reconstructed from `PUBLIC_BASE_URL` + path — set this env var to the exact URL configured in Twilio so a proxy-rewritten `Host` header can't break signature validation.
-- The AI never sees a trusted price field and cannot smuggle menu items from other businesses — `createOrder` enforces that.
+- Every inbound request's `ElevenLabs-Signature` header is validated (HMAC-SHA256 over `<timestamp>.<raw_body>`, constant-time compare, 30-minute replay window). Requests without a valid signature are rejected with 403.
+- Per-caller rate limit: each phone number may submit at most `VOICE_ORDER_DAILY_LIMIT` (default **2**) orders per rolling 24h. The next attempt returns `{ ok: false, code: "rate_limited" }` and the agent tells the caller they've hit the daily cap. Withheld / anonymous caller IDs are refused outright so hiding the number is not a bypass. Counters live in Redis (`REDIS_URL`) so the limit holds across the serverless fleet.
+- `businessId` is resolved server-side; it is never read from the agent payload.
+- The agent never sees a trusted price field and cannot smuggle menu items from other businesses — `createOrder` enforces that.

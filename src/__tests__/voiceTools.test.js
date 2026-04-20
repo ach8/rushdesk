@@ -2,30 +2,24 @@ import { describe, it, expect, vi } from 'vitest';
 import { executeToolCall, normalizeSubmitOrderArgs } from '@/lib/voice/tools';
 import { OrderError } from '@/lib/orders';
 
-function baseSession(overrides = {}) {
+function baseCtx(overrides = {}) {
   return {
-    callSid: 'CAxxxxxxxxxxxxxxxxxx1234',
     businessId: 'biz_1',
-    from: '+15551234567',
-    to: '+15550001111',
-    messages: [],
-    turnCount: 1,
-    placedOrderId: null,
-    done: false,
-    createdAt: new Date().toISOString(),
+    callerPhone: '+15551234567',
+    conversationId: 'conv_abc123XYZ',
     ...overrides,
   };
 }
 
 describe('normalizeSubmitOrderArgs', () => {
-  it('maps AI tool-call shape to createOrder shape and pins CallSid as the idempotency key', () => {
+  it('maps agent tool-call shape to createOrder shape and pins conversation_id as the idempotency key', () => {
     const args = {
       items: [{ menu_item_id: 'mi_1', quantity: 2, notes: 'no onions' }],
       order_type: 'TAKEAWAY',
       customer_name: '  Alice  ',
       order_notes: 'leave at door',
     };
-    const out = normalizeSubmitOrderArgs(args, { session: baseSession() });
+    const out = normalizeSubmitOrderArgs(args, baseCtx());
     expect(out).toMatchObject({
       businessId: 'biz_1',
       customerName: 'Alice',
@@ -33,7 +27,7 @@ describe('normalizeSubmitOrderArgs', () => {
       type: 'TAKEAWAY',
       source: 'VOICE',
       notes: 'leave at door',
-      idempotencyKey: 'CAxxxxxxxxxxxxxxxxxx1234',
+      idempotencyKey: 'elevenlabs:conv_abc123XYZ',
       items: [{ menuItemId: 'mi_1', quantity: 2, notes: 'no onions' }],
     });
   });
@@ -48,7 +42,7 @@ describe('normalizeSubmitOrderArgs', () => {
           { menu_item_id: 'mi_zero', quantity: 0 },
         ],
       },
-      { session: baseSession() },
+      baseCtx(),
     );
     expect(out.items).toEqual([{ menuItemId: 'mi_ok', quantity: 1, notes: undefined }]);
   });
@@ -56,7 +50,7 @@ describe('normalizeSubmitOrderArgs', () => {
   it('defaults to TAKEAWAY when the model hallucinates an unknown order type', () => {
     const out = normalizeSubmitOrderArgs(
       { items: [{ menu_item_id: 'mi_1', quantity: 1 }], order_type: 'TELEPORT' },
-      { session: baseSession() },
+      baseCtx(),
     );
     expect(out.type).toBe('TAKEAWAY');
   });
@@ -64,18 +58,26 @@ describe('normalizeSubmitOrderArgs', () => {
   it('coerces huge quantities to the schema cap', () => {
     const out = normalizeSubmitOrderArgs(
       { items: [{ menu_item_id: 'mi_1', quantity: 99999 }] },
-      { session: baseSession() },
+      baseCtx(),
     );
     expect(out.items[0].quantity).toBe(99);
   });
 
-  it('never reads customerPhone from the AI — only from the session (caller ID)', () => {
+  it('never reads customerPhone from the agent — only from the call context', () => {
     const out = normalizeSubmitOrderArgs(
-      // Even if the AI fabricated a customer_phone field, it shouldn't land.
+      // Even if the agent fabricated a customer_phone field, it shouldn't land.
       { items: [{ menu_item_id: 'mi_1', quantity: 1 }], customer_phone: '+10000000000' },
-      { session: baseSession({ from: '+15551234567' }) },
+      baseCtx({ callerPhone: '+15551234567' }),
     );
     expect(out.customerPhone).toBe('+15551234567');
+  });
+
+  it('omits idempotencyKey when no conversation_id is available', () => {
+    const out = normalizeSubmitOrderArgs(
+      { items: [{ menu_item_id: 'mi_1', quantity: 1 }] },
+      baseCtx({ conversationId: null }),
+    );
+    expect(out.idempotencyKey).toBeUndefined();
   });
 });
 
@@ -99,7 +101,7 @@ describe('executeToolCall', () => {
         items: [{ menu_item_id: 'mi_1', quantity: 2, notes: 'no onions' }],
         order_type: 'TAKEAWAY',
       },
-      session: baseSession(),
+      ctx: baseCtx(),
       deps: { createOrderImpl },
     });
 
@@ -108,9 +110,9 @@ describe('executeToolCall', () => {
     expect(result.short_code).toBe('ABC123');
     expect(result.total).toBe(22.5);
     expect(result.items).toHaveLength(2);
-    // We must have passed CallSid through as the idempotency key so
-    // Twilio retries don't produce duplicate orders.
-    expect(createOrderImpl.mock.calls[0][0].idempotencyKey).toBe('CAxxxxxxxxxxxxxxxxxx1234');
+    // We must have passed conversation_id through as the idempotency key so
+    // ElevenLabs retries don't produce duplicate orders.
+    expect(createOrderImpl.mock.calls[0][0].idempotencyKey).toBe('elevenlabs:conv_abc123XYZ');
   });
 
   it('submit_order: translates OrderError into a structured tool failure (no throw)', async () => {
@@ -120,7 +122,7 @@ describe('executeToolCall', () => {
     const result = await executeToolCall({
       name: 'submit_order',
       args: { items: [{ menu_item_id: 'mi_1', quantity: 1 }], order_type: 'TAKEAWAY' },
-      session: baseSession(),
+      ctx: baseCtx(),
       deps: { createOrderImpl },
     });
     expect(result).toEqual({
@@ -135,7 +137,7 @@ describe('executeToolCall', () => {
     const result = await executeToolCall({
       name: 'submit_order',
       args: { items: [{ quantity: 1 }], order_type: 'TAKEAWAY' },
-      session: baseSession(),
+      ctx: baseCtx(),
       deps: { createOrderImpl },
     });
     expect(result.ok).toBe(false);
@@ -146,7 +148,7 @@ describe('executeToolCall', () => {
     const result = await executeToolCall({
       name: 'launch_missile',
       args: {},
-      session: baseSession(),
+      ctx: baseCtx(),
     });
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/Unknown tool/);
