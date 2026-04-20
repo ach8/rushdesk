@@ -22,6 +22,12 @@ import {
   updateOrderStatusSchema,
   ALLOWED_STATUS_TRANSITIONS,
 } from './orderValidation.js';
+import { createSessionForOrder as defaultCreateSession } from './stripe.js';
+import {
+  sendPaymentSms as defaultSendPaymentSms,
+  sendOrderReadySms as defaultSendOrderReadySms,
+} from './twilio.js';
+import { isAdvancePaymentConfigured } from './businessSettings.js';
 
 export class OrderError extends Error {
   constructor(code, message, { status = 400, details } = {}) {
@@ -47,6 +53,8 @@ export function serializeOrder(order) {
     source: order.source,
     totalAmount: Number(order.totalAmount),
     notes: order.notes,
+    paymentStatus: order.paymentStatus ?? 'NOT_REQUIRED',
+    paymentUrl: order.paymentUrl ?? null,
     createdAt: order.createdAt instanceof Date ? order.createdAt.toISOString() : order.createdAt,
     updatedAt: order.updatedAt instanceof Date ? order.updatedAt.toISOString() : order.updatedAt,
     items: (order.items ?? []).map((item) => ({
@@ -64,7 +72,40 @@ export function serializeOrder(order) {
  * Create an order atomically. Throws `OrderError` on validation/integrity
  * failure; callers should map the `.status` to an HTTP response.
  */
-export async function createOrder(input, { prisma = defaultPrisma } = {}) {
+/**
+ * Decide — server-side — whether this order must transit the advance-
+ * payment flow before reaching the kitchen.
+ *
+ * Rule: voice orders for a business whose `requireVoicePaymentUpfront`
+ * toggle is on AND whose environment has Stripe/Twilio/APP_BASE_URL
+ * fully configured. If the toggle is on but any env var is missing we
+ * FAIL OPEN (legacy no-payment flow) and log loudly — dropping orders
+ * silently because of a deployment misconfiguration would be worse than
+ * briefly letting one through without payment.
+ *
+ * Non-voice orders are never gated regardless of the toggle.
+ */
+function shouldRequireAdvancePayment({ source, businessRequires, env }) {
+  if (source !== 'VOICE') return false;
+  if (!businessRequires) return false;
+  if (!isAdvancePaymentConfigured(env)) {
+    // eslint-disable-next-line no-console
+    console.error(
+      '[orders.createOrder] requireVoicePaymentUpfront is ON but Stripe/Twilio env is incomplete. ' +
+        'Falling back to immediate kitchen publish for this order.',
+    );
+    return false;
+  }
+  return true;
+}
+
+export async function createOrder(input, deps = {}) {
+  const {
+    prisma = defaultPrisma,
+    createStripeSession = defaultCreateSession,
+    sendPaymentSms = defaultSendPaymentSms,
+    env,
+  } = deps;
   const parsed = createOrderSchema.safeParse(input);
   if (!parsed.success) {
     throw new OrderError('invalid_input', 'Invalid order payload.', {
@@ -106,15 +147,31 @@ export async function createOrder(input, { prisma = defaultPrisma } = {}) {
   const menuItemIds = [...new Set(lines.map((l) => l.menuItemId))];
 
   try {
-    const created = await prisma.$transaction(async (tx) => {
+    const { created, paymentRequired } = await prisma.$transaction(async (tx) => {
       const business = await tx.business.findUnique({
         where: { id: data.businessId },
-        select: { id: true },
+        select: { id: true, requireVoicePaymentUpfront: true },
       });
       if (!business) {
         throw new OrderError('business_not_found', 'Business not found.', {
           status: 404,
         });
+      }
+
+      const paymentRequired = shouldRequireAdvancePayment({
+        source: data.source,
+        businessRequires: business.requireVoicePaymentUpfront,
+        env,
+      });
+
+      // Advance-payment requires a phone to SMS the link to. Refuse early
+      // with a structured error so the voice agent can apologize.
+      if (paymentRequired && !data.customerPhone) {
+        throw new OrderError(
+          'phone_required_for_payment',
+          'We need a phone number to text the payment link. Please ask the caller to call back with caller ID enabled.',
+          { status: 400 },
+        );
       }
 
       const menuItems = await tx.menuItem.findMany({
@@ -156,7 +213,7 @@ export async function createOrder(input, { prisma = defaultPrisma } = {}) {
       });
       const totalAmount = (Number(totalCents) / 100).toFixed(2);
 
-      return tx.order.create({
+      const createdOrder = await tx.order.create({
         data: {
           businessId: data.businessId,
           customerName: data.customerName,
@@ -166,19 +223,79 @@ export async function createOrder(input, { prisma = defaultPrisma } = {}) {
           notes: data.notes,
           idempotencyKey: data.idempotencyKey,
           totalAmount,
+          // Only voice orders that flow through the advance-payment gate
+          // are marked PENDING. Every other order is NOT_REQUIRED and
+          // publishes to the kitchen immediately below.
+          paymentStatus: paymentRequired ? 'PENDING' : 'NOT_REQUIRED',
           items: { create: itemRows },
         },
         include: { items: { include: { menuItem: true } } },
       });
+      return { created: createdOrder, paymentRequired };
     });
 
     const serialized = serializeOrder(created);
-    publishOrderEvent({
-      type: 'order.created',
-      businessId: serialized.businessId,
-      order: serialized,
-    });
-    return { order: serialized, created: true };
+
+    if (!paymentRequired) {
+      // Legacy path: immediately notify the kitchen dashboard.
+      publishOrderEvent({
+        type: 'order.created',
+        businessId: serialized.businessId,
+        order: serialized,
+      });
+      return { order: serialized, created: true };
+    }
+
+    // ── Advance-payment path ────────────────────────────────────────────
+    // Create the Stripe Checkout Session, persist the id + url on the
+    // order, SMS the URL to the caller. The order is intentionally NOT
+    // published to the kitchen yet — the Stripe webhook handles that
+    // once `checkout.session.completed` arrives.
+    try {
+      const session = await createStripeSession(serialized);
+      const updated = await prisma.order.update({
+        where: { id: serialized.id },
+        data: {
+          stripeSessionId: session.id,
+          paymentUrl: session.url,
+        },
+        include: { items: { include: { menuItem: true } } },
+      });
+      const updatedSerialized = serializeOrder(updated);
+      try {
+        await sendPaymentSms({
+          toPhone: updatedSerialized.customerPhone,
+          paymentUrl: session.url,
+          shortCode: updatedSerialized.id.slice(-6).toUpperCase(),
+        });
+      } catch (smsErr) {
+        // SMS failure is bad but not fatal — the order + payment URL
+        // still exist and staff can re-surface the link from the admin
+        // UI. Log loudly and continue.
+        // eslint-disable-next-line no-console
+        console.error('[orders.createOrder] SMS dispatch failed', {
+          orderId: updatedSerialized.id,
+          err: smsErr?.message ?? smsErr,
+        });
+      }
+      return { order: updatedSerialized, created: true };
+    } catch (payErr) {
+      // Payment infrastructure blew up — mark the order FAILED so staff
+      // can see it in ops tooling and follow up, but do NOT publish to
+      // the kitchen. Returning the order (vs throwing) keeps the voice
+      // agent's ack path intact; the failure is surfaced server-side.
+      // eslint-disable-next-line no-console
+      console.error('[orders.createOrder] Stripe session creation failed', {
+        orderId: serialized.id,
+        err: payErr?.message ?? payErr,
+      });
+      const failed = await prisma.order.update({
+        where: { id: serialized.id },
+        data: { paymentStatus: 'FAILED' },
+        include: { items: { include: { menuItem: true } } },
+      });
+      return { order: serializeOrder(failed), created: true };
+    }
   } catch (err) {
     // Unique-violation on (businessId, idempotencyKey) — another request
     // won the race. Return the winner.
@@ -200,7 +317,7 @@ export async function createOrder(input, { prisma = defaultPrisma } = {}) {
 
 export async function updateOrderStatus(
   { orderId, businessId, status },
-  { prisma = defaultPrisma } = {},
+  { prisma = defaultPrisma, sendOrderReadySms = defaultSendOrderReadySms } = {},
 ) {
   const parsed = updateOrderStatusSchema.safeParse({ status });
   if (!parsed.success) {
@@ -257,6 +374,34 @@ export async function updateOrderStatus(
     businessId: serialized.businessId,
     order: serialized,
   });
+
+  // ── "Your order is ready" SMS ───────────────────────────────────────
+  // Fire-and-forget: the kitchen's status transition has already been
+  // committed and published; an SMS failure must not roll back the
+  // order or block the operator. We log errors loudly so they surface
+  // in ops tooling.
+  if (nextStatus === 'READY' && serialized.customerPhone) {
+    (async () => {
+      try {
+        const business = await prisma.business.findUnique({
+          where: { id: businessId },
+          select: { name: true },
+        });
+        await sendOrderReadySms({
+          toPhone: serialized.customerPhone,
+          shortCode: serialized.id.slice(-6).toUpperCase(),
+          businessName: business?.name,
+        });
+      } catch (smsErr) {
+        // eslint-disable-next-line no-console
+        console.error('[orders.updateOrderStatus] READY SMS failed', {
+          orderId,
+          err: smsErr?.message ?? smsErr,
+        });
+      }
+    })();
+  }
+
   return serialized;
 }
 
@@ -278,12 +423,65 @@ export async function resolveActiveBusinessId({ prisma = defaultPrisma } = {}) {
   return business?.id ?? null;
 }
 
+/**
+ * Cancel voice-orders whose advance-payment Checkout Session has been
+ * outstanding longer than `olderThanMinutes`. This exists as a backstop
+ * for two failure modes:
+ *
+ *   1. Caller abandonment. Stripe's `checkout.session.expired` webhook
+ *      only fires at `expires_at`. Keeping the TTL short (30 min by
+ *      default) combined with this sweep means an abandoned order never
+ *      dangles as PENDING past the TTL.
+ *   2. Webhook delivery hiccups. If Stripe's `session.expired` event
+ *      never reaches us (network outage, rotated secret, temporary
+ *      signature-verification failure), the order would otherwise sit
+ *      forever as PENDING. The sweep closes that gap.
+ *
+ * The update is a single conditional `updateMany` — concurrent webhook
+ * deliveries that race against the sweep do the right thing because
+ * both target `paymentStatus = PENDING` exclusively and set the same
+ * terminal combo.
+ *
+ * Returns `{ cancelled: number }`. Designed to be safe to call from a
+ * cron job every few minutes: a no-op call is a single indexed query.
+ */
+export async function sweepExpiredPendingOrders(
+  { olderThanMinutes = 30 } = {},
+  { prisma = defaultPrisma, now = () => new Date() } = {},
+) {
+  const cutoff = new Date(now().getTime() - olderThanMinutes * 60 * 1000);
+  const result = await prisma.order.updateMany({
+    where: {
+      paymentStatus: 'PENDING',
+      createdAt: { lt: cutoff },
+    },
+    data: {
+      paymentStatus: 'EXPIRED',
+      status: 'CANCELLED',
+    },
+  });
+  if (result.count > 0) {
+    // eslint-disable-next-line no-console
+    console.info('[orders.sweepExpiredPendingOrders] cancelled stale orders', {
+      count: result.count,
+      olderThanMinutes,
+    });
+  }
+  return { cancelled: result.count };
+}
+
 export async function listRecentOrders(
   { businessId, limit = 50 },
   { prisma = defaultPrisma } = {},
 ) {
   const orders = await prisma.order.findMany({
-    where: { businessId },
+    where: {
+      businessId,
+      // Hide orders that are still waiting for (or failed / timed out on)
+      // advance payment. The kitchen only ever sees orders whose payment
+      // is either NOT_REQUIRED (legacy path) or PAID (webhook-confirmed).
+      paymentStatus: { in: ['NOT_REQUIRED', 'PAID'] },
+    },
     orderBy: { createdAt: 'desc' },
     take: Math.min(Math.max(limit, 1), 200),
     include: { items: { include: { menuItem: true } } },

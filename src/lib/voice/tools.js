@@ -103,6 +103,27 @@ export async function executeToolCall({ name, args, ctx, deps = {} }) {
 
       try {
         const { order, created } = await createOrderImpl(payload);
+        // Branch the `next` hint on whether the order went to the
+        // kitchen right away (legacy path) or is waiting on a Stripe
+        // payment whose URL was SMSed to the caller. The agent MUST
+        // NOT tell the caller the order is being prepared if it's
+        // actually waiting on payment.
+        const paymentPending = order.paymentStatus === 'PENDING';
+        const paymentFailed = order.paymentStatus === 'FAILED';
+        let next;
+        if (paymentPending) {
+          next =
+            'Tell the caller we have texted a secure payment link to the number on file, ' +
+            'and that the kitchen will start preparing the order as soon as payment is received. ' +
+            'Confirm the short_code and total, thank them, then end the call.';
+        } else if (paymentFailed) {
+          next =
+            'Apologize to the caller: we were unable to generate a payment link right now. ' +
+            'Ask them to try again in a few minutes, or to order online. Do not imply the ' +
+            'kitchen has their order.';
+        } else {
+          next = 'Confirm the short_code and total to the caller, thank them, then end the call.';
+        }
         return {
           ok: true,
           created,
@@ -110,13 +131,14 @@ export async function executeToolCall({ name, args, ctx, deps = {} }) {
           short_code: order.id.slice(-6).toUpperCase(),
           total: order.totalAmount,
           currency: 'USD',
+          payment_status: order.paymentStatus,
+          payment_required: paymentPending,
           items: order.items.map((i) => ({
             name: i.menuItemName,
             quantity: i.quantity,
             notes: i.notes ?? null,
           })),
-          // Hint to the agent: the order is in the kitchen now; wrap up.
-          next: 'Confirm the short_code and total to the caller, thank them, then end the call.',
+          next,
         };
       } catch (err) {
         if (err instanceof OrderError) {

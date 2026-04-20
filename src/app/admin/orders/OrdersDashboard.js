@@ -30,16 +30,18 @@ const STATUS_STYLES = {
   CANCELLED: 'bg-rose-100 text-rose-900 ring-rose-200',
 };
 
-// Primary workflow: PENDING → PREPARING → COMPLETED. Each entry describes
-// the button shown when the order is in that state. Falls back to the
-// status dropdown for edge cases (CONFIRMED, READY, corrections).
+// Primary workflow: PENDING → PREPARING → READY → COMPLETED. When the
+// kitchen marks an order READY the customer receives an SMS that their
+// food is ready to be picked up (handled server-side in updateOrderStatus).
 const PRIMARY_ACTION = {
   PENDING: { next: 'PREPARING', label: 'Start preparing', tone: 'indigo' },
-  PREPARING: { next: 'COMPLETED', label: 'Mark complete', tone: 'emerald' },
+  PREPARING: { next: 'READY', label: 'Mark ready', tone: 'amber' },
+  READY: { next: 'COMPLETED', label: 'Mark complete', tone: 'emerald' },
 };
 
 const TONE_CLASSES = {
   indigo: 'bg-indigo-600 text-white hover:bg-indigo-500 focus-visible:outline-indigo-600',
+  amber: 'bg-amber-500 text-white hover:bg-amber-400 focus-visible:outline-amber-500',
   emerald: 'bg-emerald-600 text-white hover:bg-emerald-500 focus-visible:outline-emerald-600',
 };
 

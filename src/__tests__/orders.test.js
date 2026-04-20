@@ -294,6 +294,106 @@ describe('updateOrderStatus', () => {
       updateOrderStatus({ orderId: 'o1', businessId: 'biz_1', status: 'PREPARING' }, { prisma }),
     ).rejects.toMatchObject({ code: 'conflict', status: 409 });
   });
+
+  it('allows the PREPARING → READY transition', async () => {
+    const prisma = makePrismaMock({ business: { id: 'biz_1' }, menuItems: [] });
+    prisma.order.findFirst = vi.fn(async () => ({ status: 'PREPARING' }));
+    prisma.order.findUnique = vi.fn(async () => orderFixture({ status: 'READY' }));
+    const sendOrderReadySms = vi.fn(async () => ({ sid: 'SM_test' }));
+
+    const order = await updateOrderStatus(
+      { orderId: 'o1', businessId: 'biz_1', status: 'READY' },
+      { prisma, sendOrderReadySms },
+    );
+    expect(order.status).toBe('READY');
+    expect(prisma.order.updateMany).toHaveBeenCalledWith({
+      where: { id: 'o1', businessId: 'biz_1', status: 'PREPARING' },
+      data: { status: 'READY' },
+    });
+  });
+
+  it('sends an SMS when transitioning to READY and the order has a phone number', async () => {
+    const prisma = makePrismaMock({ business: { id: 'biz_1' }, menuItems: [] });
+    prisma.order.findFirst = vi.fn(async () => ({ status: 'PREPARING' }));
+    prisma.order.findUnique = vi.fn(async () => ({
+      ...orderFixture({ status: 'READY' }),
+      customerPhone: '+15551234567',
+    }));
+    prisma.business.findUnique = vi.fn(async () => ({ name: 'Test Kitchen' }));
+    const sendOrderReadySms = vi.fn(async () => ({ sid: 'SM_test' }));
+
+    await updateOrderStatus(
+      { orderId: 'o1', businessId: 'biz_1', status: 'READY' },
+      { prisma, sendOrderReadySms },
+    );
+    // The SMS is fire-and-forget — flush the microtask queue so the
+    // async IIFE inside updateOrderStatus has a chance to resolve.
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(sendOrderReadySms).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toPhone: '+15551234567',
+        businessName: 'Test Kitchen',
+      }),
+    );
+  });
+
+  it('does NOT send an SMS on READY when the order has no phone', async () => {
+    const prisma = makePrismaMock({ business: { id: 'biz_1' }, menuItems: [] });
+    prisma.order.findFirst = vi.fn(async () => ({ status: 'PREPARING' }));
+    prisma.order.findUnique = vi.fn(async () => ({
+      ...orderFixture({ status: 'READY' }),
+      customerPhone: null,
+    }));
+    const sendOrderReadySms = vi.fn();
+
+    await updateOrderStatus(
+      { orderId: 'o1', businessId: 'biz_1', status: 'READY' },
+      { prisma, sendOrderReadySms },
+    );
+    await new Promise((r) => setTimeout(r, 10));
+    expect(sendOrderReadySms).not.toHaveBeenCalled();
+  });
+
+  it('does NOT send an SMS when transitioning to a status other than READY', async () => {
+    const prisma = makePrismaMock({ business: { id: 'biz_1' }, menuItems: [] });
+    prisma.order.findFirst = vi.fn(async () => ({ status: 'PENDING' }));
+    prisma.order.findUnique = vi.fn(async () => ({
+      ...orderFixture({ status: 'PREPARING' }),
+      customerPhone: '+15551234567',
+    }));
+    const sendOrderReadySms = vi.fn();
+
+    await updateOrderStatus(
+      { orderId: 'o1', businessId: 'biz_1', status: 'PREPARING' },
+      { prisma, sendOrderReadySms },
+    );
+    await new Promise((r) => setTimeout(r, 10));
+    expect(sendOrderReadySms).not.toHaveBeenCalled();
+  });
+
+  it('completes the status transition even when the READY SMS fails', async () => {
+    const prisma = makePrismaMock({ business: { id: 'biz_1' }, menuItems: [] });
+    prisma.order.findFirst = vi.fn(async () => ({ status: 'PREPARING' }));
+    prisma.order.findUnique = vi.fn(async () => ({
+      ...orderFixture({ status: 'READY' }),
+      customerPhone: '+15551234567',
+    }));
+    prisma.business.findUnique = vi.fn(async () => ({ name: 'Test Kitchen' }));
+    const sendOrderReadySms = vi.fn(async () => {
+      throw new Error('Twilio is down');
+    });
+
+    // The transition itself must succeed — SMS failure must not bubble up.
+    const order = await updateOrderStatus(
+      { orderId: 'o1', businessId: 'biz_1', status: 'READY' },
+      { prisma, sendOrderReadySms },
+    );
+    expect(order.status).toBe('READY');
+    // Flush the fire-and-forget IIFE.
+    await new Promise((r) => setTimeout(r, 10));
+    expect(sendOrderReadySms).toHaveBeenCalled();
+  });
 });
 
 describe('resolveActiveBusinessId', () => {

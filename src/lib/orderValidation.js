@@ -58,7 +58,7 @@ export const createOrderSchema = z.object({
 // (e.g. PREPARING → PENDING) via a crafted request.
 export const ALLOWED_STATUS_TRANSITIONS = {
   PENDING: ['PREPARING', 'CANCELLED'],
-  PREPARING: ['COMPLETED', 'CANCELLED'],
+  PREPARING: ['READY', 'COMPLETED', 'CANCELLED'],
   CONFIRMED: ['PREPARING', 'CANCELLED'],
   READY: ['COMPLETED'],
   COMPLETED: [],
