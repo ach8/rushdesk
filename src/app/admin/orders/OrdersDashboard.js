@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ALLOWED_STATUS_TRANSITIONS } from '@/lib/orderValidation';
+import { updateOrderStatusAction } from './actions';
 
 /**
  * Live kitchen dashboard.
@@ -120,17 +121,8 @@ export default function OrdersDashboard({ businessId, initialOrders }) {
       // server response (which is also what the SSE echo will carry)
       // so the UI cannot diverge from the authoritative kitchen state.
       try {
-        const res = await fetch(`/api/orders/${order.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin',
-          // No businessId — the server derives it from the session.
-          body: JSON.stringify({ status: nextStatus }),
-        });
-        const payload = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          throw new Error(payload.error || `Update failed (${res.status})`);
-        }
+        const payload = await updateOrderStatusAction(order.id, nextStatus);
+        if (payload.error) throw new Error(payload.error);
         if (payload.order) upsertOrder(payload.order);
       } catch (err) {
         setError(err.message);
