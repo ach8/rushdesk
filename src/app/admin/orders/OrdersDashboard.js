@@ -155,9 +155,8 @@ export default function OrdersDashboard({ businessId, initialOrders }) {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-xs text-slate-500">
           <span
-            className={`inline-block h-2 w-2 rounded-full ${
-              connected ? 'bg-emerald-500' : 'bg-slate-400'
-            }`}
+            className={`inline-block h-2 w-2 rounded-full ${connected ? 'bg-emerald-500' : 'bg-slate-400'
+              }`}
             aria-hidden="true"
           />
           <span>{connected ? 'Live' : 'Reconnecting…'}</span>
@@ -182,16 +181,73 @@ export default function OrdersDashboard({ businessId, initialOrders }) {
           </div>
         </section>
       ) : (
-        <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {sortedOrders.map((order) => (
-            <OrderCard
-              key={order.id}
-              order={order}
-              busy={pendingId === order.id}
-              onChangeStatus={requestStatusChange}
-            />
-          ))}
-        </ul>
+        <div className="grid h-[calc(100vh-14rem)] grid-cols-1 gap-6 md:grid-cols-3">
+          {/* PENDING COLUMN */}
+          <div className="flex h-full flex-col rounded-xl bg-slate-100 p-4">
+            <h2 className="mb-4 flex items-center justify-between text-sm font-bold uppercase tracking-widest text-slate-500">
+              New / Pending
+              <span className="rounded-full bg-slate-200 px-2.5 py-0.5 text-xs text-slate-700">
+                {sortedOrders.filter((o) => o.status === 'PENDING').length}
+              </span>
+            </h2>
+            <ul className="flex-1 space-y-4 overflow-y-auto pr-1 pb-4">
+              {sortedOrders
+                .filter((o) => o.status === 'PENDING')
+                .map((order) => (
+                  <OrderCard
+                    key={order.id}
+                    order={order}
+                    busy={pendingId === order.id}
+                    onChangeStatus={requestStatusChange}
+                  />
+                ))}
+            </ul>
+          </div>
+
+          {/* PREPARING COLUMN */}
+          <div className="flex h-full flex-col rounded-xl bg-slate-100 p-4">
+            <h2 className="mb-4 flex items-center justify-between text-sm font-bold uppercase tracking-widest text-indigo-500">
+              Preparing
+              <span className="rounded-full bg-indigo-100 px-2.5 py-0.5 text-xs text-indigo-700">
+                {sortedOrders.filter((o) => o.status === 'PREPARING').length}
+              </span>
+            </h2>
+            <ul className="flex-1 space-y-4 overflow-y-auto pr-1 pb-4">
+              {sortedOrders
+                .filter((o) => o.status === 'PREPARING')
+                .map((order) => (
+                  <OrderCard
+                    key={order.id}
+                    order={order}
+                    busy={pendingId === order.id}
+                    onChangeStatus={requestStatusChange}
+                  />
+                ))}
+            </ul>
+          </div>
+
+          {/* READY COLUMN */}
+          <div className="flex h-full flex-col rounded-xl bg-slate-100 p-4">
+            <h2 className="mb-4 flex items-center justify-between text-sm font-bold uppercase tracking-widest text-emerald-600">
+              Ready / Complete
+              <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs text-emerald-700">
+                {sortedOrders.filter((o) => ['READY', 'COMPLETED'].includes(o.status)).length}
+              </span>
+            </h2>
+            <ul className="flex-1 space-y-4 overflow-y-auto pr-1 pb-4">
+              {sortedOrders
+                .filter((o) => ['READY', 'COMPLETED'].includes(o.status))
+                .map((order) => (
+                  <OrderCard
+                    key={order.id}
+                    order={order}
+                    busy={pendingId === order.id}
+                    onChangeStatus={requestStatusChange}
+                  />
+                ))}
+            </ul>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -219,9 +275,8 @@ function OrderCard({ order, busy, onChangeStatus }) {
           </p>
         </div>
         <span
-          className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${
-            STATUS_STYLES[order.status] ?? STATUS_STYLES.PENDING
-          }`}
+          className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${STATUS_STYLES[order.status] ?? STATUS_STYLES.PENDING
+            }`}
         >
           {order.status}
         </span>
@@ -279,9 +334,8 @@ function OrderCard({ order, busy, onChangeStatus }) {
               type="button"
               disabled={busy}
               onClick={() => onChangeStatus(order, action.next)}
-              className={`inline-flex items-center rounded-md px-3 py-1.5 text-xs font-semibold shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-60 ${
-                TONE_CLASSES[action.tone]
-              }`}
+              className={`inline-flex items-center rounded-md px-3 py-1.5 text-xs font-semibold shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-60 ${TONE_CLASSES[action.tone]
+                }`}
             >
               {busy ? 'Updating…' : action.label}
             </button>
