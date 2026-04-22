@@ -4,6 +4,9 @@ export const metadata = {
   title: 'RushDesk',
   description: 'AI-powered order and reservation management for local businesses',
   manifest: '/manifest.json',
+};
+
+export const viewport = {
   themeColor: '#ffffff',
 };
 
