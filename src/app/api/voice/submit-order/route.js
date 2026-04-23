@@ -119,7 +119,7 @@ export async function handleSubmitOrder(request, deps = {}) {
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error('[voice.submit-order] env misconfigured', err);
-      return NextResponse.json({ ok: false, error: 'Server misconfigured.' }, { status: 500 });
+      return NextResponse.json({ ok: false, error: err.message }, { status: 500 });
     }
   }
 
