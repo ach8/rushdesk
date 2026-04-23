@@ -147,7 +147,11 @@ export async function handleSubmitOrder(request, deps = {}) {
   // ── Anti-abuse gate ─────────────────────────────────────────────────
   // Runs AFTER signature verification (only authentic ElevenLabs traffic
   // can touch the counter) and BEFORE we ack the agent.
-  const callerPhone = typeof body?.caller_phone === 'string' ? body.caller_phone : null;
+  // Also check headers in case ElevenLabs passes dynamic variables via headers
+  const headerCallerPhone = request.headers.get('x-caller-id');
+  const bodyCallerPhone = typeof body?.caller_phone === 'string' ? body.caller_phone : null;
+  const callerPhone = headerCallerPhone || bodyCallerPhone;
+
   const callerKey = normalizeCallerKey(callerPhone);
   if (!callerKey) {
     return NextResponse.json(
@@ -199,7 +203,9 @@ export async function handleSubmitOrder(request, deps = {}) {
   }
   // ────────────────────────────────────────────────────────────────────
 
-  const conversationId = typeof body?.conversation_id === 'string' ? body.conversation_id : null;
+  const headerConversationId = request.headers.get('x-conversation-id');
+  const bodyConversationId = typeof body?.conversation_id === 'string' ? body.conversation_id : null;
+  const conversationId = headerConversationId || bodyConversationId;
 
   // Kick off order creation WITHOUT awaiting it. Everything past this
   // point is latency-insensitive from the caller's perspective.
