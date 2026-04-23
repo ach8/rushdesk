@@ -61,6 +61,12 @@ export function normalizeCallerKey(raw) {
   ) {
     return null;
   }
+  
+  // ElevenLabs web widget sends "None". Convert to dummy number so testing works.
+  if (lowered === 'none') {
+    return '0000000000';
+  }
+
   const digits = trimmed.replace(/\D+/g, '');
   // Reject obviously bogus / too-short strings ("0", "123") that some
   // carriers emit for withheld numbers.
