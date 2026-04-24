@@ -215,7 +215,7 @@ export async function handleSubmitOrder(request, deps = {}) {
       const result = await executeTool({
         name: 'submit_order',
         args: body,
-        ctx: { businessId, conversationId, callerPhone },
+        ctx: { businessId, conversationId, callerPhone: callerKey || '0000000000' },
       });
       if (!result?.ok) {
         console.error('[voice.submit-order] background createOrder rejected', {
