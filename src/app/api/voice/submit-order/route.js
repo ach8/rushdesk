@@ -204,44 +204,34 @@ export async function handleSubmitOrder(request, deps = {}) {
   const bodyConversationId = typeof body?.conversation_id === 'string' ? body.conversation_id : null;
   const conversationId = headerConversationId || bodyConversationId;
 
-  // Kick off order creation WITHOUT awaiting it. Everything past this
-  // point is latency-insensitive from the caller's perspective.
-  runAfterResponse(
-    (async () => {
-      try {
-        const businessId = await resolveBusinessId();
-        if (!businessId) {
-          // eslint-disable-next-line no-console
-          console.error('[voice.submit-order] no active business configured', {
-            conversationId,
-          });
-          return;
-        }
-        const result = await executeTool({
-          name: 'submit_order',
-          args: body,
-          ctx: { businessId, conversationId, callerPhone },
-        });
-        if (!result?.ok) {
-          // The caller has already been told "accepted" — surface this
-          // loudly in logs so staff can follow up if needed.
-          // eslint-disable-next-line no-console
-          console.error('[voice.submit-order] background createOrder rejected', {
-            conversationId,
-            callerPhone,
-            code: result?.code,
-            error: result?.error,
-          });
-        }
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.error('[voice.submit-order] background createOrder threw', {
+  // For debugging: await the creation synchronously so Vercel doesn't kill the process.
+  try {
+    const businessId = await resolveBusinessId();
+    if (!businessId) {
+      console.error('[voice.submit-order] no active business configured', {
+        conversationId,
+      });
+    } else {
+      const result = await executeTool({
+        name: 'submit_order',
+        args: body,
+        ctx: { businessId, conversationId, callerPhone },
+      });
+      if (!result?.ok) {
+        console.error('[voice.submit-order] background createOrder rejected', {
           conversationId,
-          err,
+          callerPhone,
+          code: result?.code,
+          error: result?.error,
         });
       }
-    })(),
-  );
+    }
+  } catch (err) {
+    console.error('[voice.submit-order] background createOrder threw', {
+      conversationId,
+      err,
+    });
+  }
 
   // Instant ack — keeps the ElevenLabs agent responsive on the line.
   return NextResponse.json(
