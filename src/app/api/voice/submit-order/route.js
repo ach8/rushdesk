@@ -57,6 +57,7 @@
  * signature, malformed body).
  */
 import { NextResponse } from 'next/server';
+import { waitUntil } from '@vercel/functions';
 import { getEnv } from '@/lib/env';
 import { resolveActiveBusinessId } from '@/lib/orders';
 import { verifyElevenLabsSignature } from '@/lib/voice/elevenLabsSignature';
@@ -72,27 +73,13 @@ function approxHours(seconds) {
   return Math.max(1, Math.ceil(seconds / 3600));
 }
 
-// Lazily resolve Vercel's `waitUntil` so background work is guaranteed to
-// finish after the response is flushed on serverless. Falls back to a
-// fire-and-forget promise elsewhere (local dev, long-lived Node server),
-// where the process stays alive anyway.
-let waitUntilImpl;
+// Vercel's `waitUntil` ensures background work is guaranteed to
+// finish after the response is flushed on serverless.
 async function defaultRunAfterResponse(promise) {
-  if (waitUntilImpl === undefined) {
-    // Indirect specifier so Vite/Vitest doesn't try to statically resolve
-    // an optional dependency at transform time. At runtime on Vercel the
-    // package is present; everywhere else we fall through to the fire-and-
-    // forget branch below.
-    const spec = '@vercel/functions';
-    waitUntilImpl = await import(/* @vite-ignore */ /* webpackIgnore: true */ spec)
-      .then((m) => m.waitUntil ?? null)
-      .catch(() => null);
-  }
-  if (waitUntilImpl) {
-    waitUntilImpl(promise);
-  } else {
-    // Swallow rejections so an unhandled-rejection cannot crash the worker
-    // — the background task already does its own structured logging.
+  try {
+    waitUntil(promise);
+  } catch (e) {
+    // Fallback if not supported
     void promise.catch(() => {});
   }
 }
