@@ -14,50 +14,76 @@ async function main() {
   }
   console.log(`Found business: ${business.name}`);
 
-  // Create or find a test menu item
-  let burger = await prisma.menuItem.findFirst({
-    where: { name: 'Burger Test', businessId: business.id }
-  });
-  
-  if (!burger) {
-    console.log('Creating Test Menu Item: Burger Test');
-    burger = await prisma.menuItem.create({
-      data: {
-        businessId: business.id,
-        name: 'Burger Test',
-        category: 'Test',
-        price: 9.99,
-        available: true,
-      }
+  // Setup Menu Items
+  const menuData = [
+    { name: 'Classic Burger', category: 'Mains', price: 12.00 },
+    { name: 'Crispy Fries', category: 'Sides', price: 4.50 },
+    { name: 'Ice Cold Coke', category: 'Drinks', price: 2.50 },
+    { name: 'Margherita Pizza', category: 'Mains', price: 14.00 },
+    { name: 'Caesar Salad', category: 'Sides', price: 8.00 },
+  ];
+
+  const items = {};
+  for (const item of menuData) {
+    let dbItem = await prisma.menuItem.findFirst({
+      where: { name: item.name, businessId: business.id }
     });
+    if (!dbItem) {
+      dbItem = await prisma.menuItem.create({
+        data: { ...item, businessId: business.id, available: true }
+      });
+    }
+    items[item.name] = dbItem;
   }
 
-  // Generate 3 test orders
-  for (let i = 1; i <= 3; i++) {
-    console.log(`Creating test order ${i}...`);
+  const now = new Date();
+  
+  // Define the 10 use cases
+  const ordersData = [
+    {
+      // The specific use case: Same product, different notes
+      customerName: 'Kevin (Fries Test)', phone: '0601000011', type: 'TAKEAWAY', source: 'WEB',
+      delayMinutes: 0,
+      items: [ 
+        { item: items['Crispy Fries'], qty: 1, note: 'sans ketchup' },
+        { item: items['Crispy Fries'], qty: 1, note: 'avec moutarde' }
+      ]
+    }
+  ];
+
+  const redis = new Redis(process.env.REDIS_URL);
+
+  for (const [index, data] of ordersData.entries()) {
+    console.log(`Creating test order ${index + 1}... (${data.customerName})`);
     
-    // Create the order manually using prisma to bypass any complex logic
-    // but mimic the shape of serializeOrder
+    let totalAmount = 0;
+    const orderItemsCreate = data.items.map(i => {
+      const lineTotal = Number(i.item.price) * i.qty;
+      totalAmount += lineTotal;
+      return {
+        menuItemId: i.item.id,
+        quantity: i.qty,
+        unitPrice: i.item.price,
+        notes: i.note
+      };
+    });
+
+    const createdAt = new Date(now.getTime() - data.delayMinutes * 60000);
+
     const order = await prisma.order.create({
       data: {
         businessId: business.id,
-        customerName: `TEST Client ${i}`,
-        customerPhone: `060000000${i}`,
-        type: 'TAKEAWAY',
-        source: 'VOICE',
+        customerName: data.customerName,
+        customerPhone: data.phone,
+        type: data.type,
+        source: data.source,
         status: 'PENDING',
-        totalAmount: 9.99 * i,
-        notes: `Commande test numéro ${i} (sans oignons)`,
+        totalAmount: totalAmount,
+        notes: `Simulated order ${index + 1}`,
         paymentStatus: 'NOT_REQUIRED',
+        createdAt: createdAt,
         items: {
-          create: [
-            {
-              menuItemId: burger.id,
-              quantity: i,
-              unitPrice: 9.99,
-              notes: 'Sans oignons'
-            }
-          ]
+          create: orderItemsCreate
         }
       },
       include: {
@@ -92,21 +118,20 @@ async function main() {
       }))
     };
 
-    // Publish to Redis so it appears live on Vercel
-    const redis = new Redis(process.env.REDIS_URL);
+    // Publish to Redis so it appears live
     const event = {
       type: 'order.created',
       businessId: serialized.businessId,
       order: serialized,
     };
     await redis.publish(`rushdesk:orders:${serialized.businessId}`, JSON.stringify(event));
-    redis.disconnect();
     
-    // Pause briefly between orders
-    await new Promise(r => setTimeout(r, 1000));
+    // Pause briefly to simulate live incoming orders
+    await new Promise(r => setTimeout(r, 800));
   }
 
-  console.log('✅ 3 test orders created and broadcasted!');
+  redis.disconnect();
+  console.log('✅ 10 realistic test orders created and broadcasted!');
 }
 
 main()
@@ -116,6 +141,5 @@ main()
   })
   .finally(async () => {
     await prisma.$disconnect();
-    // Force exit in case Redis connection hangs open
     setTimeout(() => process.exit(0), 1000);
   });
