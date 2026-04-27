@@ -34,7 +34,7 @@ export default async function OrdersPage() {
 
   return (
     <main className="h-screen overflow-hidden bg-gradient-to-b from-slate-50 to-slate-100 flex flex-col">
-      <div className="flex-1 w-full px-4 py-4 sm:px-6 lg:px-8 flex flex-col h-full">
+      <div className="flex-1 min-h-0 w-full px-4 py-4 sm:px-6 lg:px-8 flex flex-col">
         <header className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between shrink-0">
           <div>
             <p className="text-xs font-bold uppercase tracking-widest text-indigo-600 mb-1">

@@ -58,7 +58,7 @@ function createInMemoryBroker() {
   emitter.setMaxListeners(0);
 
   return {
-    publish(businessId, event) {
+    async publish(businessId, event) {
       emitter.emit(`b:${businessId}`, event);
     },
     subscribe(businessId, handler) {
@@ -104,8 +104,8 @@ export function setOrderEventBroker(customBroker) {
   }
 }
 
-export function publishOrderEvent(event) {
-  broker.publish(event.businessId, event);
+export async function publishOrderEvent(event) {
+  await broker.publish(event.businessId, event);
 }
 
 export function subscribeToOrderEvents(businessId, handler) {

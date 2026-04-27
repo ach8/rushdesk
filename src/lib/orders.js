@@ -239,7 +239,7 @@ export async function createOrder(input, deps = {}) {
 
     if (!paymentRequired) {
       // Legacy path: immediately notify the kitchen dashboard.
-      publishOrderEvent({
+      await publishOrderEvent({
         type: 'order.created',
         businessId: serialized.businessId,
         order: serialized,
@@ -370,7 +370,7 @@ export async function updateOrderStatus(
     include: { items: { include: { menuItem: true } } },
   });
   const serialized = serializeOrder(updated);
-  publishOrderEvent({
+  await publishOrderEvent({
     type: 'order.updated',
     businessId: serialized.businessId,
     order: serialized,

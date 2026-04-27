@@ -187,22 +187,18 @@ export default function OrdersDashboard({ businessId, initialOrders }) {
         const preparingOrders = sortedOrders.filter((o) => o.status === 'PREPARING');
         const readyOrders = sortedOrders.filter((o) => ['READY', 'COMPLETED'].includes(o.status));
 
-        const maxPendingVisible = 5;
-        const visiblePending = pendingOrders.slice(0, maxPendingVisible);
-        const hiddenPendingCount = pendingOrders.length - visiblePending.length;
-
         return (
           <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-3 min-h-0 overflow-hidden">
             {/* PENDING COLUMN */}
-            <div className="flex h-full flex-col rounded-xl bg-slate-200/50 p-3 shadow-inner">
+            <div className="flex h-full flex-col rounded-xl bg-slate-200/50 p-3 shadow-inner min-h-0">
               <h2 className="mb-3 flex items-center justify-between text-xs font-bold uppercase tracking-widest text-slate-500">
                 New / Pending
                 <span className="rounded-full bg-white px-2 py-0.5 text-[10px] text-slate-700 font-bold shadow-sm">
                   {pendingOrders.length}
                 </span>
               </h2>
-              <ul className="flex-1 space-y-3 overflow-y-auto pr-1 pb-2 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
-                {visiblePending.map((order) => (
+              <ul className="flex-1 min-h-0 space-y-3 overflow-y-auto pr-1 pb-2 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
+                {pendingOrders.map((order) => (
                   <OrderCard
                     key={order.id}
                     order={order}
@@ -211,25 +207,18 @@ export default function OrdersDashboard({ businessId, initialOrders }) {
                     onDismiss={handleDismiss}
                   />
                 ))}
-                {hiddenPendingCount > 0 && (
-                  <li className="flex items-center justify-center p-3 rounded-xl border border-dashed border-slate-300 bg-slate-100/50">
-                    <span className="text-xs font-semibold text-slate-500">
-                      + {hiddenPendingCount} commande{hiddenPendingCount > 1 ? 's' : ''} en attente...
-                    </span>
-                  </li>
-                )}
               </ul>
             </div>
 
             {/* PREPARING COLUMN */}
-            <div className="flex h-full flex-col rounded-xl bg-slate-200/50 p-3 shadow-inner">
+            <div className="flex h-full flex-col rounded-xl bg-slate-200/50 p-3 shadow-inner min-h-0">
               <h2 className="mb-3 flex items-center justify-between text-xs font-bold uppercase tracking-widest text-indigo-500">
                 Preparing
                 <span className="rounded-full bg-white px-2 py-0.5 text-[10px] text-indigo-700 font-bold shadow-sm">
                   {preparingOrders.length}
                 </span>
               </h2>
-              <ul className="flex-1 space-y-3 overflow-y-auto pr-1 pb-2 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
+              <ul className="flex-1 min-h-0 space-y-3 overflow-y-auto pr-1 pb-2 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
                 {preparingOrders.map((order) => (
                   <OrderCard
                     key={order.id}
@@ -243,14 +232,14 @@ export default function OrdersDashboard({ businessId, initialOrders }) {
             </div>
 
             {/* READY COLUMN */}
-            <div className="flex h-full flex-col rounded-xl bg-slate-200/50 p-3 shadow-inner">
+            <div className="flex h-full flex-col rounded-xl bg-slate-200/50 p-3 shadow-inner min-h-0">
               <h2 className="mb-3 flex items-center justify-between text-xs font-bold uppercase tracking-widest text-emerald-600">
                 Ready / Complete
                 <span className="rounded-full bg-white px-2 py-0.5 text-[10px] text-emerald-700 font-bold shadow-sm">
                   {readyOrders.length}
                 </span>
               </h2>
-              <ul className="flex-1 space-y-3 overflow-y-auto pr-1 pb-2 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
+              <ul className="flex-1 min-h-0 space-y-3 overflow-y-auto pr-1 pb-2 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
                 {readyOrders.map((order) => (
                   <OrderCard
                     key={order.id}

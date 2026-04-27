@@ -76,13 +76,15 @@ export function createRedisBroker({ pub, sub, onError } = {}) {
   });
 
   return {
-    publish(businessId, event) {
-      // Fire-and-forget; publish failures should not block the API
-      // response. ioredis buffers commands while reconnecting.
+    async publish(businessId, event) {
+      // Await the publish so the serverless container does not freeze
+      // before the TCP packet is flushed.
       try {
         const result = pub.publish(channelFor(businessId), JSON.stringify(event));
         if (result && typeof result.catch === 'function') {
-          result.catch((err) => onError?.(err));
+          await result.catch((err) => onError?.(err));
+        } else {
+          await result;
         }
       } catch (err) {
         onError?.(err);
