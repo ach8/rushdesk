@@ -181,9 +181,11 @@ export async function createOrder(input, deps = {}) {
       });
 
       if (menuItems.length !== menuItemIds.length) {
+        const foundIds = menuItems.map((m) => m.id);
+        const missingIds = menuItemIds.filter((id) => !foundIds.includes(id));
         throw new OrderError(
           'menu_item_not_found',
-          'One or more menu items do not belong to this business.',
+          `One or more menu items do not belong to this business. Missing IDs: ${missingIds.join(', ')}`,
           { status: 400 },
         );
       }

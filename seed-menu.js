@@ -4,17 +4,25 @@ const prisma = new PrismaClient();
 
 async function main() {
   console.log('Fetching business...');
-  const business = await prisma.business.findFirst();
+  const business = await prisma.business.findFirst({
+    orderBy: { createdAt: 'asc' }
+  });
   if (!business) {
     console.error('No business found');
     process.exit(1);
   }
 
+  console.log('Wiping old menu items and orders to sync with new IDs...');
+  await prisma.orderItem.deleteMany();
+  await prisma.order.deleteMany();
+  await prisma.menuItem.deleteMany();
+
   const itemsToAdd = [
-    { name: 'Menu Double Cheese', category: 'Menus', price: 12.50, available: true },
-    { name: 'Grande Frites', category: 'Accompagnements', price: 3.50, available: true },
-    { name: 'Coca-Cola Zéro', category: 'Boissons', price: 2.50, available: true },
-    { name: 'Tiramisu Maison', category: 'Desserts', price: 4.50, available: true }
+    { id: 'classic_burger', name: 'Classic Burger', category: 'Plats Principaux', price: 12.00, available: true },
+    { id: 'pizza_marg', name: 'Margherita Pizza', category: 'Plats Principaux', price: 14.00, available: true },
+    { id: 'fries_crispy', name: 'Crispy Fries', category: 'Accompagnements', price: 4.50, available: true },
+    { id: 'salad_caesar', name: 'Caesar Salad', category: 'Accompagnements', price: 8.00, available: true },
+    { id: 'coke_regular', name: 'Ice Cold Coke', category: 'Boissons', price: 2.50, available: true }
   ];
 
   for (const item of itemsToAdd) {
