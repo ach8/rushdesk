@@ -79,13 +79,14 @@ export default async function OrderHistoryPage() {
                   <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Order ID</th>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Date</th>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Customer</th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Items</th>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-slate-200">
                 {serializedOrders.length === 0 ? (
                   <tr>
-                    <td colSpan="4" className="px-6 py-8 text-center text-sm text-slate-500">
+                    <td colSpan="5" className="px-6 py-8 text-center text-sm text-slate-500">
                       No past orders found.
                     </td>
                   </tr>
@@ -101,6 +102,16 @@ export default async function OrderHistoryPage() {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-medium text-slate-900">{order.customerName || 'Guest'}</div>
                         <div className="text-xs text-slate-500">{order.customerPhone}</div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <ul className="text-xs text-slate-600 space-y-1 max-w-xs">
+                          {order.items.map((item) => (
+                            <li key={item.id} className="truncate">
+                              <span className="font-semibold">{item.quantity}×</span> {item.menuItemName ?? 'Item'}
+                              {item.notes && <span className="italic ml-1 text-slate-400">({item.notes})</span>}
+                            </li>
+                          ))}
+                        </ul>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${

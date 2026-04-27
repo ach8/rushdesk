@@ -61,6 +61,7 @@ export function serializeOrder(order) {
       id: item.id,
       menuItemId: item.menuItemId,
       menuItemName: item.menuItem?.name,
+      category: item.menuItem?.category ?? null,
       quantity: item.quantity,
       unitPrice: Number(item.unitPrice),
       notes: item.notes ?? null,

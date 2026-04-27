@@ -280,6 +280,19 @@ function OrderCard({ order, busy, onChangeStatus, onDismiss }) {
   const waitMinutes = Math.floor((new Date() - new Date(order.createdAt)) / 60000);
   const isUrgent = order.status === 'PENDING' && waitMinutes > 10;
 
+  const kitchenItems = [];
+  const counterItems = [];
+  const counterCategories = ['drinks', 'boissons', 'desserts', 'drink', 'boisson', 'dessert'];
+  
+  order.items.forEach(item => {
+    const isCounter = counterCategories.includes((item.category || '').toLowerCase());
+    if (isCounter) {
+      counterItems.push(item);
+    } else {
+      kitchenItems.push(item);
+    }
+  });
+
   return (
     <li className={`flex flex-col rounded-xl border bg-white/90 backdrop-blur-sm p-3 shadow-sm transition-all hover:shadow-md ${isUrgent ? 'border-rose-300 ring-1 ring-rose-200 bg-rose-50/50' : 'border-slate-200 ring-1 ring-slate-900/5'}`}>
       <div className="flex items-start justify-between gap-2">
@@ -306,21 +319,39 @@ function OrderCard({ order, busy, onChangeStatus, onDismiss }) {
         </div>
       </div>
 
-      <ul className="mt-3 space-y-1 text-xs text-slate-700">
-        {order.items.map((item) => (
-          <li key={item.id} className="rounded bg-slate-50 px-2 py-1.5 flex justify-between gap-2 items-start">
-            <span className="leading-tight">
-              <span className="font-bold text-slate-900">{item.quantity}×</span>{' '}
-              {item.menuItemName ?? 'Item'}
-              {item.notes && (
-                <span className="block mt-0.5 text-[10px] font-medium text-amber-700 bg-amber-50 rounded px-1 w-max">
-                  {item.notes}
+      {kitchenItems.length > 0 && (
+        <ul className="mt-3 space-y-1 text-xs text-slate-700">
+          {kitchenItems.map((item) => (
+            <li key={item.id} className="rounded bg-slate-50 px-2 py-1.5 flex justify-between gap-2 items-start">
+              <span className="leading-tight">
+                <span className="font-bold text-slate-900">{item.quantity}×</span>{' '}
+                {item.menuItemName ?? 'Item'}
+                {item.notes && (
+                  <span className="block mt-0.5 text-[10px] font-medium text-amber-700 bg-amber-50 rounded px-1 w-max">
+                    {item.notes}
+                  </span>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {counterItems.length > 0 && (
+        <div className="mt-2 pt-2 border-t border-slate-100">
+          <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400 mb-1">Boissons & Desserts (Comptoir)</p>
+          <ul className="space-y-1 text-[10px] text-slate-500">
+            {counterItems.map((item) => (
+              <li key={item.id} className="flex justify-between gap-2 items-start">
+                <span className="leading-tight">
+                  <span className="font-semibold">{item.quantity}×</span> {item.menuItemName ?? 'Item'}
+                  {item.notes && <span className="italic ml-1 opacity-80">({item.notes})</span>}
                 </span>
-              )}
-            </span>
-          </li>
-        ))}
-      </ul>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {order.notes ? (
         <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-900 leading-tight">
