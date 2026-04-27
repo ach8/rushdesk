@@ -119,25 +119,21 @@ export async function handleSubmitOrder(request, deps = {}) {
     signatureHeader: request.headers.get('elevenlabs-signature'),
     secret: env.ELEVENLABS_WEBHOOK_SECRET,
   });
-  
   if (!sig.ok) {
-    // [TESTING BYPASS] - Allow requests to pass even if signature fails during development.
-    // In production, uncomment the return below.
-    console.warn('[voice.submit-order] Signature verification failed (bypassed for testing):', sig.reason);
-    // return NextResponse.json({ error: 'Forbidden.' }, { status: 403 });
+    // eslint-disable-next-line no-console
+    console.error('[voice.submit-order] signature verification failed', sig.reason);
+    return NextResponse.json({ error: 'Forbidden.' }, { status: 403 });
   }
 
+  // 2. Parse JSON
   let body;
   try {
     body = JSON.parse(rawBody);
-  } catch {
-    return NextResponse.json({ error: 'Malformed JSON body.' }, { status: 400 });
+  } catch (err) {
+    return NextResponse.json({ error: 'Malformed JSON.' }, { status: 400 });
   }
 
-  // ── Anti-abuse gate ─────────────────────────────────────────────────
-  // Runs AFTER signature verification (only authentic ElevenLabs traffic
-  // can touch the counter) and BEFORE we ack the agent.
-  // Also check headers in case ElevenLabs passes dynamic variables via headers
+  // 3. Anti-abuse: resolve Caller ID and check Rate Limit
   const headerCallerPhone = request.headers.get('x-caller-id');
   const bodyCallerPhone = typeof body?.caller_phone === 'string' ? body.caller_phone : null;
   const callerPhone = headerCallerPhone || bodyCallerPhone;
@@ -166,12 +162,6 @@ export async function handleSubmitOrder(request, deps = {}) {
     // A limiter outage must not let abuse through. Fail closed.
     // eslint-disable-next-line no-console
     console.error('[voice.submit-order] rate limiter unavailable', err);
-    
-    // [TESTING BYPASS] - If Redis fails to connect, let the test pass anyway.
-    console.warn('[voice.submit-order] Bypassing rate limiter failure for testing!');
-    gate = { allowed: true };
-    
-    /* In production, uncomment the below return to block orders when limiter is down:
     return NextResponse.json(
       {
         ok: false,
@@ -181,7 +171,6 @@ export async function handleSubmitOrder(request, deps = {}) {
       },
       { status: 200 },
     );
-    */
   }
   if (!gate.allowed) {
     return NextResponse.json(
@@ -198,40 +187,49 @@ export async function handleSubmitOrder(request, deps = {}) {
       { status: 200, headers: { 'Retry-After': String(gate.retryAfterSeconds) } },
     );
   }
-  // ────────────────────────────────────────────────────────────────────
 
   const headerConversationId = request.headers.get('x-conversation-id');
   const bodyConversationId = typeof body?.conversation_id === 'string' ? body.conversation_id : null;
   const conversationId = headerConversationId || bodyConversationId;
 
-  // For debugging: await the creation synchronously so Vercel doesn't kill the process.
-  try {
-    const businessId = await resolveBusinessId();
-    if (!businessId) {
-      console.error('[voice.submit-order] no active business configured', {
-        conversationId,
-      });
-    } else {
-      const result = await executeTool({
-        name: 'submit_order',
-        args: body,
-        ctx: { businessId, conversationId, callerPhone: callerKey || '0000000000' },
-      });
-      if (!result?.ok) {
-        console.error('[voice.submit-order] background createOrder rejected', {
+  // Kick off order creation WITHOUT awaiting it. Everything past this
+  // point is latency-insensitive from the caller's perspective.
+  runAfterResponse(
+    (async () => {
+      try {
+        const businessId = await resolveBusinessId();
+        if (!businessId) {
+          // eslint-disable-next-line no-console
+          console.error('[voice.submit-order] no active business configured', {
+            conversationId,
+          });
+          return;
+        }
+        const result = await executeTool({
+          name: 'submit_order',
+          args: body,
+          ctx: { businessId, conversationId, callerPhone },
+        });
+        if (!result?.ok) {
+          // The caller has already been told "accepted" — surface this
+          // loudly in logs so staff can follow up if needed.
+          // eslint-disable-next-line no-console
+          console.error('[voice.submit-order] background createOrder rejected', {
+            conversationId,
+            callerPhone,
+            code: result?.code,
+            error: result?.error,
+          });
+        }
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('[voice.submit-order] background createOrder threw', {
           conversationId,
-          callerPhone,
-          code: result?.code,
-          error: result?.error,
+          err,
         });
       }
-    }
-  } catch (err) {
-    console.error('[voice.submit-order] background createOrder threw', {
-      conversationId,
-      err,
-    });
-  }
+    })(),
+  );
 
   // Instant ack — keeps the ElevenLabs agent responsive on the line.
   return NextResponse.json(

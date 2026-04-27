@@ -66,7 +66,10 @@ export function normalizeSubmitOrderArgs(args, ctx) {
     // Caller phone comes from ElevenLabs' telephony layer (system dynamic
     // variable), passed through the server-tool body. Do NOT trust a number
     // typed by the agent inside `args`.
-    customerPhone: sanitizeString(ctx.callerPhone, 32),
+    customerPhone: sanitizeString(
+      ctx.callerPhone?.toLowerCase() === 'none' ? '0000000000' : ctx.callerPhone,
+      32
+    ),
     customerName: sanitizeString(args?.customer_name, 120),
     type: ['DINE_IN', 'TAKEAWAY', 'DELIVERY'].includes(args?.order_type)
       ? args.order_type

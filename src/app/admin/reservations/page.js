@@ -39,9 +39,11 @@ export default async function ReservationsPage() {
                         <h1 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">Reservations</h1>
                         <p className="mt-2 text-sm text-slate-600">Manage table bookings and customer arrivals.</p>
                     </div>
-                    <Link href="/admin/orders" className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-inset ring-slate-300 hover:bg-slate-50 transition">
-                        Back to Orders
-                    </Link>
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-4 sm:mt-0">
+                        <Link href="/admin/orders" className="inline-flex items-center justify-center rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-inset ring-slate-300 hover:bg-slate-50 transition">Orders</Link>
+                        <Link href="/admin/menu" className="inline-flex items-center justify-center rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-inset ring-slate-300 hover:bg-slate-50 transition">Menu</Link>
+                        <Link href="/admin/settings" className="inline-flex items-center justify-center rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-inset ring-slate-300 hover:bg-slate-50 transition">Settings</Link>
+                    </div>
                 </header>
                 <ReservationDashboard businessId={business?.id} initialReservations={serialized} />
             </div>

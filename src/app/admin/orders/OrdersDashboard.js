@@ -65,10 +65,19 @@ export default function OrdersDashboard({ businessId, initialOrders }) {
     for (const order of initialOrders) map.set(order.id, order);
     return map;
   });
+  const [dismissedOrderIds, setDismissedOrderIds] = useState(() => new Set());
   const [connected, setConnected] = useState(false);
   const [pendingId, setPendingId] = useState(null);
   const [error, setError] = useState(null);
   const esRef = useRef(null);
+
+  const handleDismiss = useCallback((orderId) => {
+    setDismissedOrderIds((prev) => {
+      const next = new Set(prev);
+      next.add(orderId);
+      return next;
+    });
+  }, []);
 
   const upsertOrder = useCallback((order) => {
     setOrders((prev) => {
@@ -108,8 +117,10 @@ export default function OrdersDashboard({ businessId, initialOrders }) {
   }, [businessId, upsertOrder]);
 
   const sortedOrders = useMemo(
-    () => [...orders.values()].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
-    [orders],
+    () => [...orders.values()]
+      .filter((o) => !dismissedOrderIds.has(o.id))
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
+    [orders, dismissedOrderIds],
   );
 
   const requestStatusChange = useCallback(
@@ -143,180 +154,189 @@ export default function OrdersDashboard({ businessId, initialOrders }) {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-xs text-slate-500">
+    <div className="flex flex-col flex-1 min-h-0 space-y-3">
+      <div className="flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
           <span
-            className={`inline-block h-2 w-2 rounded-full ${connected ? 'bg-emerald-500' : 'bg-slate-400'
-              }`}
+            className={`inline-block h-2 w-2 rounded-full ${connected ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]' : 'bg-slate-400'}`}
             aria-hidden="true"
           />
-          <span>{connected ? 'Live' : 'Reconnecting…'}</span>
+          <span>{connected ? 'Connection active' : 'Reconnecting…'}</span>
           <span aria-hidden="true">·</span>
-          <span>{sortedOrders.length} orders</span>
+          <span>{sortedOrders.length} active orders</span>
         </div>
         {error ? (
-          <p className="text-sm text-rose-600" role="alert">
+          <p className="text-xs font-semibold text-rose-600 bg-rose-50 px-2 py-1 rounded" role="alert">
             {error}
           </p>
         ) : null}
       </div>
 
       {sortedOrders.length === 0 ? (
-        <section className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm ring-1 ring-slate-900/5">
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <div className="mb-4 text-5xl">🍽️</div>
-            <h2 className="text-lg font-semibold text-slate-700">No orders yet</h2>
+        <section className="flex-1 rounded-2xl border border-slate-200 bg-white/50 p-8 shadow-sm ring-1 ring-slate-900/5 backdrop-blur-sm">
+          <div className="flex h-full flex-col items-center justify-center py-16 text-center">
+            <div className="mb-4 text-5xl opacity-50 animate-bounce">🍽️</div>
+            <h2 className="text-lg font-semibold text-slate-700">No active orders</h2>
             <p className="mt-2 max-w-sm text-sm text-slate-500">
               Orders will appear here in real time as the AI voice assistant takes calls.
             </p>
           </div>
         </section>
-      ) : (
-        <div className="grid h-[calc(100vh-14rem)] grid-cols-1 gap-6 md:grid-cols-3">
-          {/* PENDING COLUMN */}
-          <div className="flex h-full flex-col rounded-xl bg-slate-100 p-4">
-            <h2 className="mb-4 flex items-center justify-between text-sm font-bold uppercase tracking-widest text-slate-500">
-              New / Pending
-              <span className="rounded-full bg-slate-200 px-2.5 py-0.5 text-xs text-slate-700">
-                {sortedOrders.filter((o) => o.status === 'PENDING').length}
-              </span>
-            </h2>
-            <ul className="flex-1 space-y-4 overflow-y-auto pr-1 pb-4">
-              {sortedOrders
-                .filter((o) => o.status === 'PENDING')
-                .map((order) => (
-                  <OrderCard
-                    key={order.id}
-                    order={order}
-                    busy={pendingId === order.id}
-                    onChangeStatus={requestStatusChange}
-                  />
-                ))}
-            </ul>
-          </div>
+      ) : (() => {
+        const pendingOrders = sortedOrders.filter((o) => o.status === 'PENDING');
+        const preparingOrders = sortedOrders.filter((o) => o.status === 'PREPARING');
+        const readyOrders = sortedOrders.filter((o) => ['READY', 'COMPLETED'].includes(o.status));
 
-          {/* PREPARING COLUMN */}
-          <div className="flex h-full flex-col rounded-xl bg-slate-100 p-4">
-            <h2 className="mb-4 flex items-center justify-between text-sm font-bold uppercase tracking-widest text-indigo-500">
-              Preparing
-              <span className="rounded-full bg-indigo-100 px-2.5 py-0.5 text-xs text-indigo-700">
-                {sortedOrders.filter((o) => o.status === 'PREPARING').length}
-              </span>
-            </h2>
-            <ul className="flex-1 space-y-4 overflow-y-auto pr-1 pb-4">
-              {sortedOrders
-                .filter((o) => o.status === 'PREPARING')
-                .map((order) => (
-                  <OrderCard
-                    key={order.id}
-                    order={order}
-                    busy={pendingId === order.id}
-                    onChangeStatus={requestStatusChange}
-                  />
-                ))}
-            </ul>
-          </div>
+        const maxPendingVisible = 5;
+        const visiblePending = pendingOrders.slice(0, maxPendingVisible);
+        const hiddenPendingCount = pendingOrders.length - visiblePending.length;
 
-          {/* READY COLUMN */}
-          <div className="flex h-full flex-col rounded-xl bg-slate-100 p-4">
-            <h2 className="mb-4 flex items-center justify-between text-sm font-bold uppercase tracking-widest text-emerald-600">
-              Ready / Complete
-              <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs text-emerald-700">
-                {sortedOrders.filter((o) => ['READY', 'COMPLETED'].includes(o.status)).length}
-              </span>
-            </h2>
-            <ul className="flex-1 space-y-4 overflow-y-auto pr-1 pb-4">
-              {sortedOrders
-                .filter((o) => ['READY', 'COMPLETED'].includes(o.status))
-                .map((order) => (
+        return (
+          <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-3 min-h-0 overflow-hidden">
+            {/* PENDING COLUMN */}
+            <div className="flex h-full flex-col rounded-xl bg-slate-200/50 p-3 shadow-inner">
+              <h2 className="mb-3 flex items-center justify-between text-xs font-bold uppercase tracking-widest text-slate-500">
+                New / Pending
+                <span className="rounded-full bg-white px-2 py-0.5 text-[10px] text-slate-700 font-bold shadow-sm">
+                  {pendingOrders.length}
+                </span>
+              </h2>
+              <ul className="flex-1 space-y-3 overflow-y-auto pr-1 pb-2 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
+                {visiblePending.map((order) => (
                   <OrderCard
                     key={order.id}
                     order={order}
                     busy={pendingId === order.id}
                     onChangeStatus={requestStatusChange}
+                    onDismiss={handleDismiss}
                   />
                 ))}
-            </ul>
+                {hiddenPendingCount > 0 && (
+                  <li className="flex items-center justify-center p-3 rounded-xl border border-dashed border-slate-300 bg-slate-100/50">
+                    <span className="text-xs font-semibold text-slate-500">
+                      + {hiddenPendingCount} commande{hiddenPendingCount > 1 ? 's' : ''} en attente...
+                    </span>
+                  </li>
+                )}
+              </ul>
+            </div>
+
+            {/* PREPARING COLUMN */}
+            <div className="flex h-full flex-col rounded-xl bg-slate-200/50 p-3 shadow-inner">
+              <h2 className="mb-3 flex items-center justify-between text-xs font-bold uppercase tracking-widest text-indigo-500">
+                Preparing
+                <span className="rounded-full bg-white px-2 py-0.5 text-[10px] text-indigo-700 font-bold shadow-sm">
+                  {preparingOrders.length}
+                </span>
+              </h2>
+              <ul className="flex-1 space-y-3 overflow-y-auto pr-1 pb-2 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
+                {preparingOrders.map((order) => (
+                  <OrderCard
+                    key={order.id}
+                    order={order}
+                    busy={pendingId === order.id}
+                    onChangeStatus={requestStatusChange}
+                    onDismiss={handleDismiss}
+                  />
+                ))}
+              </ul>
+            </div>
+
+            {/* READY COLUMN */}
+            <div className="flex h-full flex-col rounded-xl bg-slate-200/50 p-3 shadow-inner">
+              <h2 className="mb-3 flex items-center justify-between text-xs font-bold uppercase tracking-widest text-emerald-600">
+                Ready / Complete
+                <span className="rounded-full bg-white px-2 py-0.5 text-[10px] text-emerald-700 font-bold shadow-sm">
+                  {readyOrders.length}
+                </span>
+              </h2>
+              <ul className="flex-1 space-y-3 overflow-y-auto pr-1 pb-2 scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent">
+                {readyOrders.map((order) => (
+                  <OrderCard
+                    key={order.id}
+                    order={order}
+                    busy={pendingId === order.id}
+                    onChangeStatus={requestStatusChange}
+                    onDismiss={handleDismiss}
+                  />
+                ))}
+              </ul>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
 
-function OrderCard({ order, busy, onChangeStatus }) {
+function OrderCard({ order, busy, onChangeStatus, onDismiss }) {
   const action = PRIMARY_ACTION[order.status];
   const allowedNext = ALLOWED_STATUS_TRANSITIONS[order.status] ?? [];
   const canCancel = allowedNext.includes('CANCELLED');
   const terminal = allowedNext.length === 0;
+  const isCompleted = order.status === 'COMPLETED';
+
+  // Calculate waiting time
+  const waitMinutes = Math.floor((new Date() - new Date(order.createdAt)) / 60000);
+  const isUrgent = order.status === 'PENDING' && waitMinutes > 10;
 
   return (
-    <li className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm ring-1 ring-slate-900/5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">
-            #{order.id.slice(-6)} · {order.type}
-          </p>
-          <h3 className="mt-1 text-base font-semibold text-slate-900">
-            {order.customerName || 'Guest'}
-          </h3>
-          <p className="text-xs text-slate-500">
-            {formatTime(order.createdAt)}
-            {order.customerPhone ? ` · ${order.customerPhone}` : ''}
+    <li className={`flex flex-col rounded-xl border bg-white/90 backdrop-blur-sm p-3 shadow-sm transition-all hover:shadow-md ${isUrgent ? 'border-rose-300 ring-1 ring-rose-200 bg-rose-50/50' : 'border-slate-200 ring-1 ring-slate-900/5'}`}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-bold text-slate-900 truncate">
+              {order.customerName || 'Guest'}
+            </h3>
+            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+              #{order.id.slice(-4)}
+            </span>
+            {isUrgent && (
+              <span className="flex h-2 w-2 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5">
+            <span className="font-medium text-slate-700">{formatTime(order.createdAt)}</span>
+            <span>({waitMinutes}m ago)</span>
+            {order.customerPhone ? <span className="truncate">· {order.customerPhone}</span> : ''}
           </p>
         </div>
-        <span
-          className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${STATUS_STYLES[order.status] ?? STATUS_STYLES.PENDING
-            }`}
-        >
-          {order.status}
-        </span>
       </div>
 
-      <ul className="mt-4 space-y-2 text-sm text-slate-700">
+      <ul className="mt-3 space-y-1 text-xs text-slate-700">
         {order.items.map((item) => (
-          <li key={item.id} className="rounded-lg bg-slate-50/60 px-3 py-2">
-            <div className="flex justify-between gap-3">
-              <span className="truncate">
-                <span className="font-semibold text-slate-900">{item.quantity}×</span>{' '}
-                {item.menuItemName ?? 'Item'}
-              </span>
-              <span className="tabular-nums text-slate-500">
-                {formatCurrency(item.unitPrice * item.quantity)}
-              </span>
-            </div>
-            {item.notes ? (
-              <p className="mt-1 flex items-start gap-1.5 text-xs font-medium text-amber-800">
-                <span aria-hidden="true">▸</span>
-                <span>{item.notes}</span>
-              </p>
-            ) : null}
+          <li key={item.id} className="rounded bg-slate-50 px-2 py-1.5 flex justify-between gap-2 items-start">
+            <span className="leading-tight">
+              <span className="font-bold text-slate-900">{item.quantity}×</span>{' '}
+              {item.menuItemName ?? 'Item'}
+              {item.notes && (
+                <span className="block mt-0.5 text-[10px] font-medium text-amber-700 bg-amber-50 rounded px-1 w-max">
+                  {item.notes}
+                </span>
+              )}
+            </span>
           </li>
         ))}
       </ul>
 
       {order.notes ? (
-        <div
-          className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"
-          role="note"
-        >
-          <p className="font-semibold uppercase tracking-widest">Order note</p>
-          <p className="mt-0.5 italic">{order.notes}</p>
+        <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-900 leading-tight">
+          <p className="font-bold uppercase tracking-wider text-[9px] opacity-80 mb-0.5">Note</p>
+          <p className="font-medium">{order.notes}</p>
         </div>
       ) : null}
 
-      <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
-        <span className="text-sm font-semibold text-slate-900 tabular-nums">
-          {formatCurrency(order.totalAmount)}
-        </span>
-        <div className="flex items-center gap-2">
+      <div className="mt-3 flex items-center justify-end pt-2 border-t border-slate-100">
+        <div className="flex items-center gap-1.5">
           {canCancel ? (
             <button
               type="button"
               disabled={busy}
               onClick={() => onChangeStatus(order, 'CANCELLED')}
-              className="rounded-md px-2.5 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+              className="rounded px-2 py-1 text-[10px] font-bold text-rose-600 hover:bg-rose-50 disabled:opacity-50 transition-colors"
             >
               Cancel
             </button>
@@ -326,13 +346,20 @@ function OrderCard({ order, busy, onChangeStatus }) {
               type="button"
               disabled={busy}
               onClick={() => onChangeStatus(order, action.next)}
-              className={`inline-flex items-center rounded-md px-3 py-1.5 text-xs font-semibold shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-60 ${TONE_CLASSES[action.tone]
-                }`}
+              className={`inline-flex items-center rounded px-2.5 py-1 text-[11px] font-bold shadow-sm disabled:opacity-60 transition-colors ${TONE_CLASSES[action.tone]}`}
             >
-              {busy ? 'Updating…' : action.label}
+              {busy ? '...' : action.label}
+            </button>
+          ) : isCompleted ? (
+            <button
+              type="button"
+              onClick={() => onDismiss?.(order.id)}
+              className="inline-flex items-center rounded px-2.5 py-1 text-[11px] font-bold text-slate-700 bg-slate-200 hover:bg-slate-300 transition-colors shadow-sm"
+            >
+              Clear
             </button>
           ) : terminal ? (
-            <span className="text-xs font-medium text-slate-400">No further actions</span>
+            <span className="text-[10px] font-medium text-slate-400">Done</span>
           ) : null}
         </div>
       </div>
