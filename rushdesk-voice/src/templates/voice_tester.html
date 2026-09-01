@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RushDesk Voice — Test Vocal Streaming HD</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <style>
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); opacity: 0.8; }
+      50% { transform: scale(1.15); opacity: 0.4; }
+      100% { transform: scale(0.95); opacity: 0.8; }
+    }
+    .pulsing { animation: pulse-ring 2s infinite ease-in-out; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col items-center justify-between p-6 font-sans">
+  
+  <!-- Header -->
+  <header class="w-full max-w-2xl flex items-center justify-between py-4 border-b border-slate-800">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/30">
+        <i class="fa-solid fa-headset text-lg"></i>
+      </div>
+      <div>
+        <h1 class="text-xl font-bold tracking-tight">RushDesk Voice AI</h1>
+        <p class="text-xs text-slate-400">Agent Alex &bull; Voix HD Naturelle en Streaming</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <!-- Voice Selector -->
+      <select id="voice-select" class="bg-slate-900 border border-slate-700 text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-indigo-500">
+        <option value="fr-FR-VivienneMultilingualNeural" selected>👩 Vivienne (Chaleureuse & Ultra-Naturelle)</option>
+        <option value="fr-FR-RemyMultilingualNeural">👨 Rémy (Dynamique & Spontané)</option>
+        <option value="fr-FR-HenriNeural">👨 Henri (Posé)</option>
+        <option value="fr-FR-DeniseNeural">👩 Denise (Classique)</option>
+      </select>
+      <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+        HD Stream
+      </span>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="w-full max-w-2xl flex-1 flex flex-col items-center justify-center my-6 gap-6">
+    
+    <!-- Chat Transcript Box -->
+    <div id="transcript-box" class="w-full h-80 bg-slate-900/80 border border-slate-800 rounded-2xl p-5 overflow-y-auto flex flex-col gap-4 shadow-inner">
+      <div class="flex gap-3 items-start">
+        <div class="w-8 h-8 rounded-lg bg-indigo-600/20 text-indigo-400 flex items-center justify-center text-sm font-bold flex-shrink-0">IA</div>
+        <div class="bg-slate-800/80 rounded-2xl rounded-tl-none p-3.5 text-sm text-slate-200 shadow-sm max-w-[85%]">
+          Bonjour et bienvenue chez RushDesk ! Je suis Alex. Cliquez sur le micro ci-dessous et parlez-moi pour passer votre commande.
+        </div>
+      </div>
+    </div>
+
+    <!-- Live Status / Recognized Text -->
+    <div class="w-full text-center">
+      <p id="status-text" class="text-sm font-medium text-slate-400 h-6">
+        Appuyez sur le micro pour parler
+      </p>
+    </div>
+
+    <!-- Mic Button -->
+    <div class="relative flex items-center justify-center">
+      <div id="mic-ring" class="absolute w-28 h-28 rounded-full bg-indigo-600/30 hidden"></div>
+      <button id="mic-btn" class="relative z-10 w-20 h-20 rounded-full bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white flex items-center justify-center text-2xl shadow-xl shadow-indigo-600/40 transition-all">
+        <i id="mic-icon" class="fa-solid fa-microphone"></i>
+      </button>
+    </div>
+
+    <div class="flex items-center gap-4 text-xs text-slate-500">
+      <span id="latency-badge"><i class="fa-solid fa-bolt text-amber-400 mr-1"></i> Streaming Audio direct</span>
+      <span><i class="fa-solid fa-sparkles text-indigo-400 mr-1"></i> Voix Naturelle HD sans robot</span>
+    </div>
+
+  </main>
+
+  <!-- Footer Info -->
+  <footer class="w-full max-w-2xl text-center py-3 border-t border-slate-900 text-xs text-slate-500">
+    RushDesk AI Fast-Food Voice Assistant &bull; Streaming Audio Chunked Direct
+  </footer>
+
+  <script>
+    const micBtn = document.getElementById('mic-btn');
+    const micIcon = document.getElementById('mic-icon');
+    const micRing = document.getElementById('mic-ring');
+    const statusText = document.getElementById('status-text');
+    const transcriptBox = document.getElementById('transcript-box');
+    const voiceSelect = document.getElementById('voice-select');
+    const latencyBadge = document.getElementById('latency-badge');
+
+    let isListening = false;
+    let recognition = null;
+    let currentAudio = null;
+
+    // Initialisation Speech Recognition (Micro)
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      recognition = new SpeechRecognition();
+      recognition.lang = 'fr-FR';
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      recognition.onstart = () => {
+        isListening = true;
+        micBtn.classList.replace('bg-indigo-600', 'bg-rose-600');
+        micBtn.classList.replace('hover:bg-indigo-500', 'hover:bg-rose-500');
+        micRing.classList.remove('hidden');
+        micRing.classList.add('pulsing');
+        statusText.textContent = "🎙️ Je vous écoute...";
+        statusText.className = "text-sm font-medium text-rose-400 h-6 animate-pulse";
+      };
+
+      recognition.onresult = async (event) => {
+        const userText = event.results[0][0].transcript;
+        addMessage('user', userText);
+        
+        const startTime = Date.now();
+        statusText.textContent = "⚡ Alex répond...";
+        statusText.className = "text-sm font-medium text-indigo-400 h-6";
+
+        try {
+          // Requête texte ultra-rapide (< 150 ms)
+          const res = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              message: userText,
+              skip_tts: true // Ne pas bloquer la requête sur le calcul base64
+            })
+          });
+          const data = await res.json();
+          const reply = data.reply;
+          addMessage('ia', reply);
+
+          const elapsed = Date.now() - startTime;
+          latencyBadge.innerHTML = `<i class="fa-solid fa-bolt text-emerald-400 mr-1"></i> Réponse en ${elapsed} ms`;
+
+          // Lancement du streaming audio HD direct en parallèle
+          playStreamingAudio(reply, voiceSelect.value);
+
+        } catch (err) {
+          console.error(err);
+          statusText.textContent = "Erreur de communication avec l'agent.";
+        }
+      };
+
+      recognition.onerror = (e) => {
+        stopListening();
+        statusText.textContent = "Micro arrêté. Cliquez pour parler.";
+        statusText.className = "text-sm font-medium text-slate-400 h-6";
+      };
+
+      recognition.onend = () => {
+        stopListening();
+      };
+    }
+
+    function startListening() {
+      if (currentAudio && !currentAudio.paused) currentAudio.pause();
+      if (recognition) recognition.start();
+    }
+
+    function stopListening() {
+      isListening = false;
+      micBtn.classList.replace('bg-rose-600', 'bg-indigo-600');
+      micBtn.classList.replace('hover:bg-rose-500', 'hover:bg-indigo-500');
+      micRing.classList.add('hidden');
+      micRing.classList.remove('pulsing');
+    }
+
+    micBtn.addEventListener('click', () => {
+      if (!isListening) {
+        startListening();
+      } else {
+        if (recognition) recognition.stop();
+        stopListening();
+      }
+    });
+
+    function addMessage(sender, text) {
+      const msgDiv = document.createElement('div');
+      msgDiv.className = "flex gap-3 items-start";
+      if (sender === 'user') {
+        msgDiv.innerHTML = `
+          <div class="ml-auto flex gap-3 items-start flex-row-reverse max-w-[85%]">
+            <div class="w-8 h-8 rounded-lg bg-emerald-600/20 text-emerald-400 flex items-center justify-center text-sm font-bold flex-shrink-0">Vous</div>
+            <div class="bg-emerald-600/90 rounded-2xl rounded-tr-none p-3.5 text-sm text-white shadow-sm">${text}</div>
+          </div>
+        `;
+      } else {
+        msgDiv.innerHTML = `
+          <div class="w-8 h-8 rounded-lg bg-indigo-600/20 text-indigo-400 flex items-center justify-center text-sm font-bold flex-shrink-0">IA</div>
+          <div class="bg-slate-800/80 rounded-2xl rounded-tl-none p-3.5 text-sm text-slate-200 shadow-sm max-w-[85%]">${text}</div>
+        `;
+      }
+      transcriptBox.appendChild(msgDiv);
+      transcriptBox.scrollTop = transcriptBox.scrollHeight;
+    }
+
+    function playStreamingAudio(text, voice) {
+      if (currentAudio) {
+        currentAudio.pause();
+      }
+
+      // Stream HTTP Chunked direct : le son démarre dès les premiers octets
+      const streamUrl = `/api/tts?text=${encodeURIComponent(text)}&voice=${encodeURIComponent(voice)}&t=${Date.now()}`;
+      currentAudio = new Audio(streamUrl);
+
+      currentAudio.onplay = () => {
+        statusText.textContent = "🔊 Alex vous parle (Voix HD Naturelle)...";
+        statusText.className = "text-sm font-medium text-emerald-400 h-6";
+      };
+
+      currentAudio.onended = () => {
+        statusText.textContent = "Appuyez sur le micro pour répondre";
+        statusText.className = "text-sm font-medium text-slate-400 h-6";
+      };
+
+      currentAudio.play().catch(err => {
+        console.error("Audio playback error:", err);
+      });
+    }
+  </script>
+</body>
+</html>

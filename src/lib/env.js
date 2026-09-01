@@ -15,7 +15,7 @@ const envSchema = z.object({
   // REQUIRED in any horizontally-scaled deployment (e.g. Vercel) — a
   // container can only fan out an event to its own local subscribers
   // without it, so other kitchen screens would miss updates.
-  REDIS_URL: z.string().url().optional(),
+  REDIS_URL: z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional()),
   // Shared secret used to validate inbound ElevenLabs webhook signatures
   // (HMAC-SHA256 over `<timestamp>.<raw_body>`). Without it any caller on
   // the internet could POST fake submit_order payloads and inject orders

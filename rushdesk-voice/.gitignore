@@ -1,0 +1,29 @@
+# Environment variables
+.env
+.env.local
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+dist/
+build/
+*.egg-info/
+
+# Logs
+*.log
+
+# Binaries & Large files
+cloudflared.exe
+*.exe
+*.bin
+*.tar
+*.zip
+node_modules/
+.cache/
+.DS_Store

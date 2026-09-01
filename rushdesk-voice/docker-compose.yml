@@ -1,0 +1,15 @@
+version: "3.8"
+
+services:
+  rushdesk-voice:
+    build: .
+    container_name: rushdesk-voice
+    restart: always
+    env_file:
+      - .env
+    ports:
+      - "8765:8765"
+    environment:
+      - PORT=8765
+      - HOST=0.0.0.0
+      - LOG_LEVEL=INFO
